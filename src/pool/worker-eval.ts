@@ -1,29 +1,29 @@
 import { KILL_GRACE } from "../consts.ts";
-import type { TaskRequest, WorkerResponse } from "../types.ts";
+import type { JobResponse, Task } from "./protocol.ts";
 
 const WORKER_URL = new URL("./worker.ts", import.meta.url).href;
 
 type Timer = ReturnType<typeof setTimeout>;
 
-export const DROPPED_RESPONSE: WorkerResponse = {
+export const DROPPED_RESPONSE: JobResponse = {
   kind: "error",
   name: "PoolClosedError",
   message: "пул закрыт, задача не выполнена",
 };
 
-export type Task = {
-  request: TaskRequest;
+export type Job = {
+  task: Task;
   timeout: number;
-  handleResponse: (response: WorkerResponse) => void;
+  handleResponse: (response: JobResponse) => void;
 };
 
-// Держит одного воркера и не больше одной задачи за раз. Воркера убивают
+// Держит одного воркера и не больше одного Job за раз. Воркера убивают
 // и заменяют, а объект класса при этом остаётся тем же — поэтому замыкания
 // обработчиков и таймеров продолжают указывать на живое место, а не на мертвеца.
 export class WorkerEval {
   private worker: Worker;
   private handleFree: () => void;
-  private task?: Task;
+  private job?: Job;
   private abortTimer?: Timer;
   private killTimer?: Timer;
   private closed = false;
@@ -35,57 +35,57 @@ export class WorkerEval {
   }
 
   get free(): boolean {
-    return this.task === undefined;
+    return this.job === undefined;
   }
 
   // Отдаёт задачу воркеру и заводит двухступенчатый таймаут.
   //
-  // Обе проверки `this.task !== task` обязательны. clearTimeout не помогает,
+  // Обе проверки `this.job !== job` обязательны. clearTimeout не помогает,
   // если колбэк таймера уже выбран из очереди событий: он всё равно выполнится.
-  // К этому моменту задача могла завершиться, воркер — освободиться, и пул мог
-  // отдать сюда следующую задачу. Без сверки по идентичности первый колбэк
-  // повесил бы таймер убийства на чужую задачу и убил бы невиновного.
+  // К этому моменту Job мог завершиться, воркер — освободиться, и пул мог
+  // отдать сюда следующий. Без сверки по идентичности первый колбэк
+  // повесил бы таймер убийства на чужой Job и убил бы невиновного.
   //
   // Сам abort безвреден даже с опозданием: сообщения воркеру приходят по
   // порядку, и запоздавший abort окажется перед run следующей задачи, когда
   // контроллер в воркере уже сброшен.
-  run(task: Task): void {
-    this.task = task;
+  run(job: Job): void {
+    this.job = job;
 
     this.abortTimer = setTimeout(() => {
-      if (this.task !== task) {
+      if (this.job !== job) {
         return;
       }
 
       this.worker.postMessage({ kind: "abort" });
 
       this.killTimer = setTimeout(() => {
-        if (this.task !== task) {
+        if (this.job !== job) {
           return;
         }
 
         this.kill();
       }, KILL_GRACE);
-    }, task.timeout);
+    }, job.timeout);
 
-    this.worker.postMessage(task.request);
+    this.worker.postMessage(job.task);
   }
 
-  // Закрытие обязано ответить незавершённой задаче. Если этого не делать,
-  // тот, кто ждёт её промис, повиснет навсегда: воркер убит и ответа не пришлёт.
+  // Закрытие обязано ответить незавершённому Job. Если этого не делать,
+  // тот, кто ждёт его промис, повиснет навсегда: воркер убит и ответа не пришлёт.
   close(): void {
     this.closed = true;
-    const task = this.task;
+    const job = this.job;
 
     this.clearTimers();
-    this.task = undefined;
+    this.job = undefined;
     this.worker.terminate();
-    task?.handleResponse(DROPPED_RESPONSE);
+    job?.handleResponse(DROPPED_RESPONSE);
   }
 
   private attach(): void {
-    this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-      this.finishTask(event.data);
+    this.worker.onmessage = (event: MessageEvent<JobResponse>) => {
+      this.finishJob(event.data);
     };
 
     // Сюда попадает только то, что воркер не поймал сам: падение при загрузке
@@ -95,7 +95,7 @@ export class WorkerEval {
     this.worker.onerror = (event) => {
       const message = event instanceof ErrorEvent ? event.message : "воркер упал";
       this.respawn();
-      this.finishTask({ kind: "error", name: "WorkerError", message });
+      this.finishJob({ kind: "error", name: "WorkerError", message });
     };
   }
 
@@ -125,37 +125,37 @@ export class WorkerEval {
     }
   }
 
-  // Пустая задача означает, что ответ пришёл от воркера, чья задача уже
-  // закрыта таймаутом, — такой ответ выбрасывается.
-  private finishTask(response: WorkerResponse): void {
-    const task = this.task;
+  // Пустой Job означает, что ответ пришёл от воркера, чей Job уже
+  // закрыт таймаутом, — такой ответ выбрасывается.
+  private finishJob(response: JobResponse): void {
+    const job = this.job;
 
-    if (task === undefined) {
+    if (job === undefined) {
       return;
     }
 
     this.clearTimers();
-    this.task = undefined;
-    task.handleResponse(response);
+    this.job = undefined;
+    job.handleResponse(response);
     this.handleFree();
   }
 
   // Жёсткая ветка таймаута: воркер не отчитался даже после abort.
   private kill(): void {
-    const task = this.task;
+    const job = this.job;
 
-    if (task === undefined) {
+    if (job === undefined) {
       return;
     }
 
     this.clearTimers();
-    this.task = undefined;
+    this.job = undefined;
     this.respawn();
 
-    task.handleResponse({
+    job.handleResponse({
       kind: "error",
       name: "TimeoutError",
-      message: `кейс не уложился в ${task.timeout}мс и был убит`,
+      message: `кейс не уложился в ${job.timeout}мс и был убит`,
     });
 
     this.handleFree();

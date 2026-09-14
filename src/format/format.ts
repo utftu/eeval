@@ -1,4 +1,4 @@
-import type { CaseRecord, RunRecord, TrialRecord } from "./types.ts";
+import type { CaseRecord, EvalRecord, TrialRecord } from "../types.ts";
 
 // Чистые функции вывода: раннер их не зовёт, печатает CLI.
 
@@ -10,12 +10,10 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-// Разброс показывается всегда, потому что гейтит среднее, а среднее его прячет:
-// 100/100/10 и 70/70/70 дают одинаковые 70.
 function formatTrials(trials: TrialRecord[]): string {
   const parts = trials.map((trial) => (trial.score === undefined ? "err" : String(trial.score)));
 
-  return `(${parts.join("/")})`;
+  return parts.join("/");
 }
 
 function findError(trials: TrialRecord[]): string {
@@ -30,9 +28,8 @@ function findError(trials: TrialRecord[]): string {
 
 export function formatCaseLine(record: CaseRecord): string {
   const status = record.passed ? "ok  " : "fail";
-  const score = record.score === undefined ? "--" : String(record.score);
   const spent = formatMs(record.trials.reduce((sum, trial) => sum + trial.ms, 0));
-  const line = `  ${status}  ${record.name.padEnd(36)} ${score.padStart(6)}  ${formatTrials(record.trials).padEnd(14)} ${spent}`;
+  const line = `  ${status}  ${record.name.padEnd(36)} ${formatTrials(record.trials).padEnd(14)} ${spent}`;
 
   if (record.passed) {
     return line;
@@ -47,7 +44,7 @@ export function formatCaseLine(record: CaseRecord): string {
   return `${line}  ${reason}`;
 }
 
-export function formatSummary(record: RunRecord): string {
+export function formatSummary(record: EvalRecord): string {
   const failed = record.total - record.passed;
 
   return `  всего ${record.total}, прошло ${record.passed}, упало ${failed}, ${formatMs(record.ms)}`;

@@ -1,12 +1,15 @@
-import { checkEval, createEval, findEvals } from "./eval.ts";
-import type {
-  CaseOptions,
-  CaseResult,
-  CaseRun,
-  Eval,
-  EvalCase,
-  EvalCtx,
-} from "./types.ts";
+import {
+  type Case,
+  type CaseEnt,
+  type CaseProps,
+  type CaseResult,
+  checkEval,
+  createEval,
+  type Eval,
+  type EvalCtx,
+  type EvalEnt,
+  findEvals,
+} from "./eval/eval.ts";
 
 export { createEval, checkEval, findEvals };
-export type { CaseOptions, CaseResult, CaseRun, Eval, EvalCase, EvalCtx };
+export type { Case, CaseEnt, CaseProps, CaseResult, Eval, EvalCtx, EvalEnt };

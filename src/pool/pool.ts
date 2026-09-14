@@ -1,19 +1,19 @@
-import type { TaskRequest, WorkerResponse } from "../types.ts";
-import { DROPPED_RESPONSE, type Task, WorkerEval } from "./worker-eval.ts";
+import type { JobResponse, Task } from "./protocol.ts";
+import { DROPPED_RESPONSE, type Job, WorkerEval } from "./worker-eval.ts";
 
 // Пул воркеров. Родитель сам никогда не исполняет пользовательский код:
 // файл эвала импортируется только внутри воркера.
 //
-// Жизнь одной задачи:
-//   send -> очередь -> run в свободном воркере -> ответ -> finishTask
+// Жизнь одного Job:
+//   send -> очередь -> run в свободном воркере -> ответ -> finishJob
 // либо, если воркер не ответил вовремя:
 //   run -> таймер -> abort воркеру -> секунда отсрочки -> kill -> замена воркера
 //
 // Пул знает только про очередь и про то, кто свободен. Всё, что связано
-// с одним воркером и одной задачей в нём, живёт в WorkerEval.
+// с одним воркером и одним Job в нём, живёт в WorkerEval.
 export class Pool {
   private workers: WorkerEval[] = [];
-  private tasks: Task[] = [];
+  private jobs: Job[] = [];
   private closed = false;
 
   // Все воркеры поднимаются сразу, а не по мере надобности: спаун стоит
@@ -25,16 +25,16 @@ export class Pool {
     }
   }
 
-  // Единственный вход. Промис разрешается ответом воркера — в том числе
+  // Единственный вход. Промис разрешается ответом на Job — в том числе
   // ответом об ошибке: неудача кейса это нормальный исход, а не исключение.
   // Бросается только обращение к уже закрытому пулу, то есть ошибка вызывающего.
-  send(taskReq: TaskRequest, timeout: number): Promise<WorkerResponse> {
+  send(task: Task, timeout: number): Promise<JobResponse> {
     if (this.closed) {
       throw new Error("пул уже закрыт");
     }
 
-    return new Promise<WorkerResponse>((resolve) => {
-      this.tasks.push({ request: taskReq, timeout, handleResponse: resolve });
+    return new Promise<JobResponse>((resolve) => {
+      this.jobs.push({ task, timeout, handleResponse: resolve });
       this.pump();
     });
   }
@@ -46,35 +46,35 @@ export class Pool {
       worker.close();
     }
 
-    for (const task of this.tasks) {
-      task.handleResponse(DROPPED_RESPONSE);
+    for (const job of this.jobs) {
+      job.handleResponse(DROPPED_RESPONSE);
     }
 
     this.workers = [];
-    this.tasks = [];
+    this.jobs = [];
   }
 
   // Раздаёт очередь по свободным воркерам, пока есть и то, и другое.
-  // Зовётся после каждого освобождения воркера и после каждой новой задачи.
+  // Зовётся после каждого освобождения воркера и после каждого нового Job.
   private pump(): void {
     if (this.closed) {
       return;
     }
 
-    while (this.tasks.length > 0) {
+    while (this.jobs.length > 0) {
       const worker = this.workers.find((item) => item.free);
 
       if (worker === undefined) {
         return;
       }
 
-      const task = this.tasks.shift();
+      const job = this.jobs.shift();
 
-      if (task === undefined) {
+      if (job === undefined) {
         return;
       }
 
-      worker.run(task);
+      worker.run(job);
     }
   }
 }
