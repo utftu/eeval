@@ -22,8 +22,8 @@ const COLORED: Palette = {
 
 const PLAIN: Palette = { ok: "", fail: "", key: "", reset: "" };
 
-const OUTPUT_LIMIT = 200;
-const STATUS_WIDTH = 4;
+const outputLimit = 200;
+const statusWidth = 4;
 
 function formatMs(ms: number): string {
   if (ms < 1000) {
@@ -48,11 +48,11 @@ function formatValue(value: string): string {
 function formatOutput(output: unknown): string {
   const text = JSON.stringify(output) ?? String(output);
 
-  if (text.length <= OUTPUT_LIMIT) {
+  if (text.length <= outputLimit) {
     return text;
   }
 
-  return `${text.slice(0, OUTPUT_LIMIT)}…`;
+  return `${text.slice(0, outputLimit)}…`;
 }
 
 function renderStatus(passed: boolean, palette: Palette): string {
@@ -67,7 +67,7 @@ function renderStatus(passed: boolean, palette: Palette): string {
 function padStatus(passed: boolean, palette: Palette): string {
   const word = passed ? "ok" : "fail";
 
-  return `${renderStatus(passed, palette)}${" ".repeat(STATUS_WIDTH - word.length)}`;
+  return `${renderStatus(passed, palette)}${" ".repeat(statusWidth - word.length)}`;
 }
 
 function renderFields(fields: Field[], palette: Palette): string {

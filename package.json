@@ -6,12 +6,18 @@
     "typescript": "^7.0.2"
   },
   "exports": {
-    ".": "./src/eeval.ts"
+    ".": {
+      "types": "./dist/eeval.d.ts",
+      "default": "./dist/eeval.js"
+    }
   },
   "bin": {
-    "eeval": "./src/cli/cli.ts"
+    "eeval": "./dist/cli/cli.js"
   },
   "scripts": {
+    "build:js": "bun build src/eeval.ts src/cli/cli.ts src/pool/worker.ts --root src --outdir dist --target bun",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run build:js && bun run build:types",
     "test": "bun test",
     "types": "tsc --noEmit"
   },

@@ -1,14 +1,14 @@
 export const INSTANCE_KEY = "__eeval";
 export const INSTANCE_VALUE = "eval";
 
-export const DEFAULT_TIMEOUT = 60_000;
-export const KILL_GRACE = 1_000;
+export const defaultTimeout = 60_000;
+export const killGrace = 1_000;
 
 export const RECORD_VERSION = 1;
 
 export const EEVAL_DIR = ".eeval";
-export const LATEST_KEEP = 3;
+export const latestKeep = 3;
 
-export const DEFAULT_CONCURRENCY_LIMIT = 20;
-export const DEFAULT_TRIALS = 1;
-export const DEFAULT_RETRIES = 0;
+export const defaultConcurrencyLimit = 20;
+export const defaultTrials = 1;
+export const defaultRetries = 0;

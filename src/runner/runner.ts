@@ -1,4 +1,4 @@
-import { DEFAULT_TIMEOUT, RECORD_VERSION } from "../consts.ts";
+import { defaultTimeout, RECORD_VERSION } from "../consts.ts";
 import type { CaseProps } from "../eval/eval.ts";
 import type { Pool } from "../pool/pool.ts";
 import type { EvalConfig, JobResponse, Task } from "../pool/protocol.ts";
@@ -122,7 +122,7 @@ async function runCase({
     evalName: plan.eval.name,
     caseName: caseProps.name,
   };
-  const timeout = options.timeout ?? caseProps.timeout ?? DEFAULT_TIMEOUT;
+  const timeout = options.timeout ?? caseProps.timeout ?? defaultTimeout;
 
   // Trials одного кейса уходят в пул одновременно: нагрузку всё равно
   // ограничивает число воркеров, а замеры друг от друга не зависят.
@@ -207,7 +207,7 @@ export async function runEvals({
   reportTrial: ReportTrial;
 }): Promise<RunRecord> {
   const startedAt = Date.now();
-  const listTimeout = options.timeout ?? DEFAULT_TIMEOUT;
+  const listTimeout = options.timeout ?? defaultTimeout;
   const plans = await buildPlans({ pool, files, timeout: listTimeout });
 
   // Кейсы всех эвалов уходят в пул разом, одной очередью: параллельность

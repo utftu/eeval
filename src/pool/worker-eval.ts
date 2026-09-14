@@ -1,7 +1,11 @@
-import { KILL_GRACE } from "../consts.ts";
+import { killGrace } from "../consts.ts";
 import type { JobResponse, Task } from "./protocol.ts";
 
-const WORKER_URL = new URL("./worker.ts", import.meta.url).href;
+// Путь без расширения и через ../pool/ нарочно: в исходниках этот код лежит
+// в src/pool/ рядом с worker.ts, а в сборке он вшит в dist/cli/cli.js, и воркер
+// лежит в dist/pool/worker.js. Bun дописывает расширение сам, поэтому одна
+// строка находит воркер в обоих случаях.
+const WORKER_URL = new URL("../pool/worker", import.meta.url).href;
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -70,7 +74,7 @@ export class WorkerEval {
         }
 
         this.kill();
-      }, KILL_GRACE);
+      }, killGrace);
     }, job.timeout);
 
     this.worker.postMessage(job.task);

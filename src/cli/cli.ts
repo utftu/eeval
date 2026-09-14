@@ -3,9 +3,9 @@ import { Block, Cli, Param, globalArg } from "argblock";
 import { join } from "node:path";
 
 import {
-  DEFAULT_CONCURRENCY_LIMIT,
-  DEFAULT_RETRIES,
-  DEFAULT_TRIALS,
+  defaultConcurrencyLimit,
+  defaultRetries,
+  defaultTrials,
   EEVAL_DIR,
 } from "../consts.ts";
 import { findEvalFiles } from "../discovery/discovery.ts";
@@ -33,7 +33,7 @@ export function pickConcurrency(cores: number | undefined): number {
     return 1;
   }
 
-  return Math.min(Math.floor(cores), DEFAULT_CONCURRENCY_LIMIT);
+  return Math.min(Math.floor(cores), defaultConcurrencyLimit);
 }
 
 // Число ядер читается здесь, при разборе аргументов, а не оседает константой
@@ -48,20 +48,20 @@ function createParams(): Param[] {
       type: "number",
       short: "c",
       defaultValue: pickConcurrency(navigator.hardwareConcurrency),
-      description: `сколько воркеров, по умолчанию по числу ядер, но не больше ${DEFAULT_CONCURRENCY_LIMIT}`,
+      description: `сколько воркеров, по умолчанию по числу ядер, но не больше ${defaultConcurrencyLimit}`,
     }),
     new Param({
       name: "trials",
       type: "number",
       short: "t",
-      defaultValue: DEFAULT_TRIALS,
+      defaultValue: defaultTrials,
       description: "сколько раз запускать каждый кейс",
     }),
     new Param({
       name: "retries",
       type: "number",
       short: "r",
-      defaultValue: DEFAULT_RETRIES,
+      defaultValue: defaultRetries,
       description: "сколько повторов при падении",
     }),
     new Param({

@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { LATEST_KEEP } from "../consts.ts";
+import { latestKeep } from "../consts.ts";
 import type { RunRecord } from "../types.ts";
 
 // history.jsonl растёт вечно, поэтому output в него не пишется — он живёт
@@ -43,7 +43,7 @@ export async function writeRecord(root: string, record: RunRecord): Promise<void
 
   const latestPath = join(root, "latest.json");
   const previous = await readLatest(latestPath);
-  const next = [record, ...previous].slice(0, LATEST_KEEP);
+  const next = [record, ...previous].slice(0, latestKeep);
 
   await Bun.write(latestPath, JSON.stringify(next, null, 2));
 }
