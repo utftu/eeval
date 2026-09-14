@@ -15,16 +15,34 @@ export type RunOptions = {
   timeout?: number;
 };
 
-export type ReportCase = (evalName: string, record: CaseRecord) => void;
+export type TrialReport = {
+  evalName: string;
+  caseName: string;
+  trial: number;
+  minScore: number;
+  record: TrialRecord;
+};
 
-// Раннер решает, что запускать, и собирает записи прогонов. Он ничего не
-// печатает и ничего не пишет на диск: строку по готовому кейсу отдаёт
-// в reportCase, а записи возвращает наружу.
+export type ReportTrial = (report: TrialReport) => void;
+
+// Раннер решает, что запускать, и собирает запись запуска. Он ничего не
+// печатает и ничего не пишет на диск: готовый trial отдаёт в reportTrial,
+// а запись возвращает наружу.
 
 type Plan = {
   file: string;
   eval: EvalConfig;
 };
+
+// Правило одно на раннер и вывод: trial прошёл, если у него есть балл и балл
+// не ниже порога. У trial, упавшего после всех retries, балла нет.
+export function checkTrial(record: TrialRecord, minScore: number): boolean {
+  if (record.score === undefined) {
+    return false;
+  }
+
+  return record.score >= minScore;
+}
 
 function describeResponse(response: JobResponse): TrialRecord["error"] {
   if (response.kind === "error") {
@@ -52,17 +70,22 @@ async function runTrial({
   timeout: number;
   retries: number;
 }): Promise<TrialRecord> {
-  const startedAt = Date.now();
+  // Время trial — сумма выполнения всех попыток в воркере. Ожидание свободного
+  // воркера перед каждой попыткой не считается: оно зависит от --concurrency
+  // и загрузки пула, а не от сервиса.
+  let ms = 0;
   let used = 0;
 
   while (true) {
-    const response = await pool.send(task, timeout);
+    const sent = await pool.send(task, timeout);
+    const response = sent.response;
+    ms = ms + sent.ms;
 
     if (response.kind === "result") {
       return {
         score: response.score,
         output: response.output,
-        ms: Date.now() - startedAt,
+        ms,
         retries: used,
       };
     }
@@ -74,7 +97,7 @@ async function runTrial({
 
     return {
       error: describeResponse(response),
-      ms: Date.now() - startedAt,
+      ms,
       retries: used,
     };
   }
@@ -85,11 +108,13 @@ async function runCase({
   plan,
   caseProps,
   options,
+  reportTrial,
 }: {
   pool: Pool;
   plan: Plan;
   caseProps: CaseProps;
   options: RunOptions;
+  reportTrial: ReportTrial;
 }): Promise<CaseRecord> {
   const task: Task = {
     kind: "run",
@@ -103,16 +128,28 @@ async function runCase({
   // ограничивает число воркеров, а замеры друг от друга не зависят.
   // Promise.all отдаёт их в порядке запуска, а не завершения.
   const trials = await Promise.all(
-    Array.from({ length: options.trials }, () =>
-      runTrial({ pool, task, timeout, retries: options.retries }),
-    ),
+    Array.from({ length: options.trials }, async (_, i) => {
+      const record = await runTrial({
+        pool,
+        task,
+        timeout,
+        retries: options.retries,
+      });
+
+      reportTrial({
+        evalName: plan.eval.name,
+        caseName: caseProps.name,
+        trial: i + 1,
+        minScore: caseProps.minScore,
+        record,
+      });
+
+      return record;
+    }),
   );
 
   // Баллы не сворачиваются: кейс прошёл, только если прошёл каждый trial.
-  // У trial, упавшего после всех retries, балла нет, и он кейс валит.
-  const passed = trials.every(
-    (trial) => trial.score !== undefined && trial.score >= caseProps.minScore,
-  );
+  const passed = trials.every((trial) => checkTrial(trial, caseProps.minScore));
 
   return {
     name: caseProps.name,
@@ -135,7 +172,7 @@ async function buildPlans({
   const seen = new Map<string, string>();
 
   for (const file of files) {
-    const response = await pool.send({ kind: "list", file }, timeout);
+    const { response } = await pool.send({ kind: "list", file }, timeout);
 
     if (response.kind !== "cases") {
       throw new Error(`${file}: ${describeResponse(response)?.message}`);
@@ -162,40 +199,37 @@ export async function runEvals({
   pool,
   files,
   options,
-  reportCase,
+  reportTrial,
 }: {
   pool: Pool;
   files: string[];
   options: RunOptions;
-  reportCase: ReportCase;
+  reportTrial: ReportTrial;
 }): Promise<RunRecord> {
   const startedAt = Date.now();
   const listTimeout = options.timeout ?? DEFAULT_TIMEOUT;
   const plans = await buildPlans({ pool, files, timeout: listTimeout });
-  const evals: EvalRecord[] = [];
 
-  for (const plan of plans) {
-    const evalStartedAt = Date.now();
+  // Кейсы всех эвалов уходят в пул разом, одной очередью: параллельность
+  // ограничивает только число воркеров. reportTrial зовётся по мере
+  // готовности, поэтому trials разных кейсов и эвалов приходят вперемешку,
+  // а в записи эвалы и кейсы лежат в порядке объявления — его держит Promise.all.
+  const evals = await Promise.all(
+    plans.map(async (plan): Promise<EvalRecord> => {
+      const cases = await Promise.all(
+        plan.eval.cases.map((caseProps) =>
+          runCase({ pool, plan, caseProps, options, reportTrial }),
+        ),
+      );
 
-    // Кейсы одного эвала уходят в пул все разом — очередь пула и есть
-    // ограничение параллельности.
-    const cases = await Promise.all(
-      plan.eval.cases.map(async (caseProps) => {
-        const record = await runCase({ pool, plan, caseProps, options });
-        reportCase(plan.eval.name, record);
-
-        return record;
-      }),
-    );
-
-    evals.push({
-      name: plan.eval.name,
-      ms: Date.now() - evalStartedAt,
-      total: cases.length,
-      passed: cases.filter((record) => record.passed).length,
-      cases,
-    });
-  }
+      return {
+        name: plan.eval.name,
+        total: cases.length,
+        passed: cases.filter((record) => record.passed).length,
+        cases,
+      };
+    }),
+  );
 
   return {
     version: RECORD_VERSION,

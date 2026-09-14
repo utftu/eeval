@@ -14,7 +14,7 @@ export const DROPPED_RESPONSE: JobResponse = {
 export type Job = {
   task: Task;
   timeout: number;
-  handleResponse: (response: JobResponse) => void;
+  handleResponse: (response: JobResponse, ms: number) => void;
 };
 
 // Держит одного воркера и не больше одного Job за раз. Воркера убивают
@@ -24,6 +24,10 @@ export class WorkerEval {
   private worker: Worker;
   private handleFree: () => void;
   private job?: Job;
+  // Когда текущий Job отдан воркеру. Длительность считается отсюда, а не от
+  // постановки в очередь: ожидание свободного воркера — загрузка пула, а не
+  // время выполнения.
+  private startedAt = 0;
   private abortTimer?: Timer;
   private killTimer?: Timer;
   private closed = false;
@@ -51,6 +55,7 @@ export class WorkerEval {
   // контроллер в воркере уже сброшен.
   run(job: Job): void {
     this.job = job;
+    this.startedAt = Date.now();
 
     this.abortTimer = setTimeout(() => {
       if (this.job !== job) {
@@ -80,7 +85,7 @@ export class WorkerEval {
     this.clearTimers();
     this.job = undefined;
     this.worker.terminate();
-    job?.handleResponse(DROPPED_RESPONSE);
+    job?.handleResponse(DROPPED_RESPONSE, Date.now() - this.startedAt);
   }
 
   private attach(): void {
@@ -136,7 +141,7 @@ export class WorkerEval {
 
     this.clearTimers();
     this.job = undefined;
-    job.handleResponse(response);
+    job.handleResponse(response, Date.now() - this.startedAt);
     this.handleFree();
   }
 
@@ -152,11 +157,14 @@ export class WorkerEval {
     this.job = undefined;
     this.respawn();
 
-    job.handleResponse({
-      kind: "error",
-      name: "TimeoutError",
-      message: `кейс не уложился в ${job.timeout}мс и был убит`,
-    });
+    job.handleResponse(
+      {
+        kind: "error",
+        name: "TimeoutError",
+        message: `кейс не уложился в ${job.timeout}мс и был убит`,
+      },
+      Date.now() - this.startedAt,
+    );
 
     this.handleFree();
   }

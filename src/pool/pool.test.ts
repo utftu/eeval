@@ -33,7 +33,7 @@ export const second = createEval("summary", (ctx) => {
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "list", file }, 5000);
+  const { response } = await pool.send({ kind: "list", file }, 5000);
   pool.close();
 
   expect(response.kind).toBe("cases");
@@ -55,7 +55,7 @@ export const ev = createEval("e", (ctx) => {
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
+  const { response } = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
   expect(response).toEqual({ kind: "result", score: 92, output: undefined });
@@ -72,7 +72,7 @@ export const ev = createEval("e", (ctx) => {
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
+  const { response } = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
   expect(response.kind).toBe("result");
@@ -94,7 +94,7 @@ export const ev = createEval("e", (ctx) => {
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
+  const { response } = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
   expect(response.kind).toBe("error");
@@ -123,8 +123,8 @@ export const ev = createEval("e", (ctx) => {
   const second = await pool.send({ kind: "run", file: wrongType, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
-  expect(first.kind === "error" && first.message).toContain("вне шкалы 0..100");
-  expect(second.kind === "error" && second.message).toContain("должен вернуть число");
+  expect(first.response.kind === "error" && first.response.message).toContain("вне шкалы 0..100");
+  expect(second.response.kind === "error" && second.response.message).toContain("должен вернуть число");
 });
 
 test("файл без экспортированного эвала — ошибка", async () => {
@@ -136,7 +136,7 @@ export const helper = 42;
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "list", file }, 5000);
+  const { response } = await pool.send({ kind: "list", file }, 5000);
   pool.close();
 
   expect(response.kind === "error" && response.message).toContain("нет ни одного экспортированного эвала");
@@ -150,7 +150,7 @@ export const ev = createEval("e", (ctx) => {
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
+  const { response } = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
   expect(response.kind).toBe("error");
@@ -171,7 +171,7 @@ export const ev = createEval("e", (ctx) => {
 
   const pool = new Pool(1);
   const started = Date.now();
-  const response = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 200);
+  const { response } = await pool.send({ kind: "run", file, evalName: "e", caseName: "c" }, 200);
   const spent = Date.now() - started;
   pool.close();
 
@@ -196,13 +196,14 @@ export const ev = createEval("e", (ctx) => {
   const pool = new Pool(1);
 
   const killed = await pool.send({ kind: "run", file: hang, evalName: "e", caseName: "c" }, 200);
-  expect(killed.kind === "error" && killed.name).toBe("TimeoutError");
-  expect(killed.kind === "error" && killed.message).toContain("был убит");
+  expect(killed.response.kind === "error" && killed.response.name).toBe("TimeoutError");
+  expect(killed.response.kind === "error" && killed.response.message).toContain("был убит");
+  expect(killed.ms).toBeGreaterThanOrEqual(1000);
 
   const after = await pool.send({ kind: "run", file: normal, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
-  expect(after).toEqual({ kind: "result", score: 77, output: undefined });
+  expect(after.response).toEqual({ kind: "result", score: 77, output: undefined });
 }, 10000);
 
 test("задания очередятся, когда воркеров меньше, чем работы", async () => {
@@ -219,7 +220,7 @@ export const ev = createEval("e", (ctx) => {
 
   const pool = new Pool(2);
   const started = Date.now();
-  const responses = await Promise.all(
+  const results = await Promise.all(
     [1, 2, 3, 4].map((item) =>
       pool.send({ kind: "run", file, evalName: "e", caseName: "c" + item }, 5000),
     ),
@@ -227,8 +228,32 @@ export const ev = createEval("e", (ctx) => {
   const spent = Date.now() - started;
   pool.close();
 
-  expect(responses.map((item) => (item.kind === "result" ? item.score : -1))).toEqual([10, 20, 30, 40]);
+  expect(
+    results.map((item) => (item.response.kind === "result" ? item.response.score : -1)),
+  ).toEqual([10, 20, 30, 40]);
   expect(spent).toBeGreaterThanOrEqual(120);
+});
+
+test("ms считает выполнение в воркере, а не ожидание в очереди", async () => {
+  const file = await writeEval(`
+export const ev = createEval("e", (ctx) => {
+  ctx.createCase({ name: "c", minScore: 50 }, async () => {
+    await Bun.sleep(300);
+    return 90;
+  });
+});
+`);
+
+  const pool = new Pool(1);
+  const task = { kind: "run", file, evalName: "e", caseName: "c" } as const;
+
+  // Второе задание ждёт первое в очереди около 300мс.
+  const [first, second] = await Promise.all([pool.send(task, 5000), pool.send(task, 5000)]);
+  pool.close();
+
+  expect(first.ms).toBeGreaterThanOrEqual(290);
+  expect(second.ms).toBeGreaterThanOrEqual(290);
+  expect(second.ms).toBeLessThan(550);
 });
 
 test("close не оставляет висящих заданий", async () => {
@@ -248,8 +273,9 @@ export const ev = createEval("e", (ctx) => {
   await Bun.sleep(50);
   pool.close();
 
-  expect((await running).kind).toBe("error");
-  expect((await queued).kind).toBe("error");
+  expect((await running).response.kind).toBe("error");
+  expect((await queued).response.kind).toBe("error");
+  expect((await queued).ms).toBe(0);
 });
 
 test("отменённое задание не задевает следующее в том же воркере", async () => {
@@ -277,12 +303,12 @@ export const ev = createEval("e", (ctx) => {
   const pool = new Pool(1);
 
   const first = await pool.send({ kind: "run", file: slow, evalName: "e", caseName: "c" }, 200);
-  expect(first.kind === "error" && first.message).toBe("отменён");
+  expect(first.response.kind === "error" && first.response.message).toBe("отменён");
 
   const second = await pool.send({ kind: "run", file: quick, evalName: "e", caseName: "c" }, 5000);
   pool.close();
 
-  expect(second).toEqual({ kind: "result", score: 64, output: undefined });
+  expect(second.response).toEqual({ kind: "result", score: 64, output: undefined });
 }, 10000);
 
 test("падение на верхнем уровне файла приходит ошибкой, а не зависанием", async () => {
@@ -295,7 +321,7 @@ export const ev = createEval("e", (ctx) => {
 `);
 
   const pool = new Pool(1);
-  const response = await pool.send({ kind: "list", file }, 3000);
+  const { response } = await pool.send({ kind: "list", file }, 3000);
   pool.close();
 
   expect(response.kind).toBe("error");

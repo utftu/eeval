@@ -9,6 +9,6 @@ export const RECORD_VERSION = 1;
 export const EEVAL_DIR = ".eeval";
 export const LATEST_KEEP = 3;
 
-export const DEFAULT_CONCURRENCY = 4;
+export const DEFAULT_CONCURRENCY_LIMIT = 20;
 export const DEFAULT_TRIALS = 1;
 export const DEFAULT_RETRIES = 0;

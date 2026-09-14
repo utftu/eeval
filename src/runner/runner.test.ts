@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Pool } from "../pool/pool.ts";
-import type { CaseRecord, RunRecord } from "../types.ts";
-import { type RunOptions, runEvals } from "./runner.ts";
+import type { RunRecord } from "../types.ts";
+import { checkTrial, type RunOptions, runEvals, type TrialReport } from "./runner.ts";
 
 const root = await mkdtemp(join(tmpdir(), "eeval-runner-"));
 const entry = join(import.meta.dir, "..", "eeval.ts");
@@ -30,16 +30,16 @@ const base: RunOptions = { trials: 1, retries: 0 };
 async function run(
   files: string[],
   options: RunOptions,
-): Promise<{ record: RunRecord; reported: { evalName: string; record: CaseRecord }[] }> {
+): Promise<{ record: RunRecord; reported: TrialReport[] }> {
   const pool = new Pool(1);
-  const reported: { evalName: string; record: CaseRecord }[] = [];
+  const reported: TrialReport[] = [];
 
   try {
     const record = await runEvals({
       pool,
       files,
       options,
-      reportCase: (evalName, caseRecord) => reported.push({ evalName, record: caseRecord }),
+      reportTrial: (report) => reported.push(report),
     });
 
     return { record, reported };
@@ -47,6 +47,12 @@ async function run(
     pool.close();
   }
 }
+
+test("trial без балла или ниже порога не прошёл", () => {
+  expect(checkTrial({ score: 80, ms: 1, retries: 0 }, 80)).toBe(true);
+  expect(checkTrial({ score: 79, ms: 1, retries: 0 }, 80)).toBe(false);
+  expect(checkTrial({ error: { name: "Error", message: "x" }, ms: 1, retries: 0 }, 0)).toBe(false);
+});
 
 test("запись запуска собирается целиком", async () => {
   const file = await writeEval(`
@@ -75,7 +81,25 @@ export const ev = createEval("return-decision", (ctx) => {
   expect(evalRecord.cases[0]?.trials[0]?.score).toBe(92);
 
   expect(reported).toHaveLength(2);
-  expect(reported[0]?.evalName).toBe("return-decision");
+  expect(reported.map((item) => [item.evalName, item.caseName, item.trial, item.minScore])).toContainEqual([
+    "return-decision",
+    "не дотянул",
+    1,
+    80,
+  ]);
+});
+
+test("каждый trial сообщается отдельно со своим номером", async () => {
+  const file = await writeEval(`
+export const ev = createEval("e", (ctx) => {
+  ctx.createCase({ name: "c", minScore: 50 }, async () => 90);
+});
+`);
+
+  const { reported } = await run([file], { trials: 3, retries: 0 });
+
+  expect(reported.map((item) => item.trial).sort()).toEqual([1, 2, 3]);
+  expect(reported.every((item) => item.record.score === 90)).toBe(true);
 });
 
 test("эвалы из разных файлов попадают в один запуск", async () => {
@@ -246,12 +270,61 @@ export const ev = createEval("e", (ctx) => {
       pool,
       files: [file],
       options: { trials: 3, retries: 0 },
-      reportCase: () => {},
+      reportTrial: () => {},
     });
 
     expect(record.evals[0]!.cases[0]!.trials).toHaveLength(3);
-    expect(record.evals[0]!.ms).toBeLessThan(1000);
+    expect(record.ms).toBeLessThan(1000);
   } finally {
     pool.close();
   }
+}, 15000);
+
+test("кейсы разных эвалов идут одновременно", async () => {
+  const body = (name: string): string => `
+export const ev = createEval("${name}", (ctx) => {
+  ctx.createCase({ name: "c", minScore: 50 }, async () => {
+    await Bun.sleep(600);
+    return 90;
+  });
+});
+`;
+  const first = await writeEval(body("first"));
+  const second = await writeEval(body("second"));
+
+  const pool = new Pool(2);
+
+  try {
+    const record = await runEvals({
+      pool,
+      files: [first, second],
+      options: { trials: 1, retries: 0 },
+      reportTrial: () => {},
+    });
+
+    expect(record.evals.map((item) => item.name)).toEqual(["first", "second"]);
+    expect(record.ms).toBeLessThan(1100);
+  } finally {
+    pool.close();
+  }
+}, 15000);
+
+test("время trial не включает ожидание свободного воркера", async () => {
+  const file = await writeEval(`
+export const ev = createEval("e", (ctx) => {
+  for (const name of ["first", "second"]) {
+    ctx.createCase({ name, minScore: 50 }, async () => {
+      await Bun.sleep(300);
+      return 90;
+    });
+  }
+});
+`);
+
+  // Один воркер на два кейса: второй ждёт первого около 300мс в очереди.
+  const { record } = await run([file], base);
+  const trials = record.evals[0]!.cases.map((item) => item.trials[0]!);
+
+  expect(record.ms).toBeGreaterThanOrEqual(600);
+  expect(trials.every((trial) => trial.ms >= 290 && trial.ms < 550)).toBe(true);
 }, 15000);

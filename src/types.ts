@@ -15,7 +15,6 @@ export type CaseRecord = {
 
 export type EvalRecord = {
   name: string;
-  ms: number;
   total: number;
   passed: number;
   cases: CaseRecord[];

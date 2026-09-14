@@ -8,9 +8,15 @@
   "exports": {
     ".": "./src/eeval.ts"
   },
+  "bin": {
+    "eeval": "./src/cli/cli.ts"
+  },
   "scripts": {
     "test": "bun test",
     "types": "tsc --noEmit"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "argblock": "^0.0.13"
+  }
 }

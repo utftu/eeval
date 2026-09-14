@@ -15,7 +15,6 @@ afterAll(async () => {
 function createEvalRecord(name: string, score: number): EvalRecord {
   return {
     name,
-    ms: 100,
     total: 1,
     passed: 1,
     cases: [
