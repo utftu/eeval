@@ -1,5 +1,5 @@
 {
-  "name": "eeval",
+  "name": "evall",
   "version": "0.0.2",
   "devDependencies": {
     "@types/bun": "^1.4.2",
