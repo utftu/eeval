@@ -32,6 +32,6 @@
   },
   "type": "module",
   "dependencies": {
-    "argblock": "^0.0.14"
+    "argblock": "^0.0.15"
   }
 }
