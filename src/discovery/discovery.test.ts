@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-const root = await mkdtemp(join(tmpdir(), "eeval-discovery-"));
+const root = await mkdtemp(join(tmpdir(), "ordeal-discovery-"));
 
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
@@ -54,7 +54,7 @@ test("несуществующий путь бросает, а не даёт п�
 });
 
 test("пустая папка даёт пустой список", async () => {
-  const empty = await mkdtemp(join(tmpdir(), "eeval-empty-"));
+  const empty = await mkdtemp(join(tmpdir(), "ordeal-empty-"));
 
   expect(await findEvalFiles([], empty)).toEqual([]);
 

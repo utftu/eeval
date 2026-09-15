@@ -1,6 +1,6 @@
-import { createEval } from "eeval";
+import { createEval } from "ordeal";
 
-// Пример для ручной проверки того, как eeval ведёт себя на неудачах.
+// Пример для ручной проверки того, как ordeal ведёт себя на неудачах.
 
 export const failures = createEval("failures", (ctx) => {
   ctx.createCase({ name: "ниже порога", minScore: 80 }, async () => {

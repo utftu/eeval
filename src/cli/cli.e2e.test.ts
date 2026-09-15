@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const root = await mkdtemp(join(tmpdir(), "eeval-cli-"));
+const root = await mkdtemp(join(tmpdir(), "ordeal-cli-"));
 const cliPath = join(import.meta.dir, "cli.ts");
-const entry = join(import.meta.dir, "..", "eeval.ts");
+const entry = join(import.meta.dir, "..", "ordeal.ts");
 let counter = 0;
 
 afterAll(async () => {
@@ -62,7 +62,7 @@ export const ev = createEval("return-decision", (ctx) => {
   expect(stdout).toContain('  case="не дотянул" fail');
   expect(stdout).toContain("total=2 passed=1 failed=1");
 
-  const history = await Bun.file(join(directory, ".eeval", "history.jsonl")).text();
+  const history = await Bun.file(join(directory, ".ordeal", "history.jsonl")).text();
 
   expect(history.trim().split("\n")).toHaveLength(1);
 }, 15000);
@@ -91,7 +91,7 @@ export const ev = createEval("e", (ctx) => {
 
   expect(code).toBe(2);
   expect(stderr).toContain("не найден");
-  expect(await Bun.file(join(directory, ".eeval", "history.jsonl")).exists()).toBe(false);
+  expect(await Bun.file(join(directory, ".ordeal", "history.jsonl")).exists()).toBe(false);
 }, 15000);
 
 test("эвалов не найдено — код 2", async () => {

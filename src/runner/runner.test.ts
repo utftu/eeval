@@ -7,8 +7,8 @@ import { Pool } from "../pool/pool.ts";
 import type { RunRecord } from "../types.ts";
 import { checkTrial, type RunOptions, runEvals, type TrialReport } from "./runner.ts";
 
-const root = await mkdtemp(join(tmpdir(), "eeval-runner-"));
-const entry = join(import.meta.dir, "..", "eeval.ts");
+const root = await mkdtemp(join(tmpdir(), "ordeal-runner-"));
+const entry = join(import.meta.dir, "..", "ordeal.ts");
 let counter = 0;
 
 afterAll(async () => {

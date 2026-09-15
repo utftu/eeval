@@ -5,8 +5,8 @@ import { join } from "node:path";
 
 import { Pool } from "./pool.ts";
 
-const root = await mkdtemp(join(tmpdir(), "eeval-pool-"));
-const entry = join(import.meta.dir, "..", "eeval.ts");
+const root = await mkdtemp(join(tmpdir(), "ordeal-pool-"));
+const entry = join(import.meta.dir, "..", "ordeal.ts");
 let counter = 0;
 
 afterAll(async () => {

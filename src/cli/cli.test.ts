@@ -22,7 +22,7 @@ test("без аргументов — значения по умолчанию �
   });
 });
 
-test("eeval и eeval run означают одно и то же", () => {
+test("ordeal и ordeal run означают одно и то же", () => {
   const argv = ["evals", "other", "-c", "8", "--trials", "3", "-r", "2", "--timeout", "5000"];
   const expected = {
     paths: ["evals", "other"],

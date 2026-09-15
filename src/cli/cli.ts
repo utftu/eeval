@@ -6,7 +6,7 @@ import {
   defaultConcurrencyLimit,
   defaultRetries,
   defaultTrials,
-  EEVAL_DIR,
+  ORDEAL_DIR,
 } from "../consts.ts";
 import { findEvalFiles } from "../discovery/discovery.ts";
 import { formatReport, formatTrialLine } from "../format/format.ts";
@@ -72,7 +72,7 @@ function createParams(): Param[] {
   ];
 }
 
-// Параметры и пути объявлены и на корне, и на run: голый eeval и eeval run
+// Параметры и пути объявлены и на корне, и на run: голый ordeal и ordeal run
 // означают одно и то же.
 function createRoot(): Block {
   const paths = [{ name: "paths", required: false, variadic: true }];
@@ -81,7 +81,7 @@ function createRoot(): Block {
     arg: globalArg,
     params: createParams(),
     positionals: paths,
-    description: "eeval — прогон эвалов",
+    description: "ordeal — прогон эвалов",
     children: [
       new Block({
         arg: "run",
@@ -150,7 +150,7 @@ export async function runCli(argv: string[], cwd: string): Promise<number> {
 
     console.log("");
     console.log(formatReport(record, color));
-    await writeRecord(join(cwd, EEVAL_DIR), record);
+    await writeRecord(join(cwd, ORDEAL_DIR), record);
 
     const failed = record.evals.some((item) => item.passed < item.total);
 

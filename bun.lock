@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "eeval",
+      "name": "ordeal",
       "dependencies": {
         "argblock": "^0.0.13",
       },

@@ -7,15 +7,15 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/eeval.d.ts",
-      "default": "./dist/eeval.js"
+      "types": "./dist/ordeal.d.ts",
+      "default": "./dist/ordeal.js"
     }
   },
   "bin": {
-    "eeval": "./dist/cli/cli.js"
+    "ordeal": "./dist/cli/cli.js"
   },
   "scripts": {
-    "build:js": "bun build src/eeval.ts src/cli/cli.ts src/pool/worker.ts --root src --outdir dist --target bun",
+    "build:js": "bun build src/ordeal.ts src/cli/cli.ts src/pool/worker.ts --root src --outdir dist --target bun",
     "build:types": "tsc -p tsconfig.build.json",
     "build": "bun run build:js && bun run build:types",
     "test": "bun test",

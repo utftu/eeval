@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { writeRecord } from "./storage.ts";
 import type { EvalRecord, RunRecord } from "../types.ts";
 
-const root = await mkdtemp(join(tmpdir(), "eeval-storage-"));
+const root = await mkdtemp(join(tmpdir(), "ordeal-storage-"));
 
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
