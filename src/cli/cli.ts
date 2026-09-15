@@ -9,7 +9,7 @@ import {
   ORDEAL_DIR,
 } from "../consts.ts";
 import { findEvalFiles } from "../discovery/discovery.ts";
-import { formatReport, formatTrialLine } from "../format/format.ts";
+import { formatReport, formatStartLine, formatTrialLine } from "../format/format.ts";
 import { Pool } from "../pool/pool.ts";
 import { type RunOptions, runEvals } from "../runner/runner.ts";
 import { writeRecord } from "../storage/storage.ts";
@@ -145,6 +145,7 @@ export async function runCli(argv: string[], cwd: string): Promise<number> {
       pool,
       files,
       options: args.options,
+      reportStart: (report) => console.log(formatStartLine(report, color)),
       reportTrial: (report) => console.log(formatTrialLine(report, color)),
     });
 

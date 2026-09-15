@@ -626,12 +626,14 @@ async function runTrial({
   pool,
   task,
   timeout,
-  retries
+  retries,
+  handleStart
 }) {
   let ms = 0;
   let used = 0;
   while (true) {
-    const sent = await pool.send(task, timeout);
+    const before = used;
+    const sent = await pool.send({ task, timeout, handleStart: () => handleStart(before) });
     const response = sent.response;
     ms = ms + sent.ms;
     if (response.kind === "result") {
@@ -658,6 +660,7 @@ async function runCase({
   plan,
   caseProps,
   options,
+  reportStart,
   reportTrial
 }) {
   const task = {
@@ -672,7 +675,13 @@ async function runCase({
       pool,
       task,
       timeout,
-      retries: options.retries
+      retries: options.retries,
+      handleStart: (retries) => reportStart({
+        evalName: plan.eval.name,
+        caseName: caseProps.name,
+        trial: i + 1,
+        retries
+      })
     });
     reportTrial({
       evalName: plan.eval.name,
@@ -699,7 +708,7 @@ async function buildPlans({
   const plans = [];
   const seen = new Map;
   for (const file of files) {
-    const { response } = await pool.send({ kind: "list", file }, timeout);
+    const { response } = await pool.send({ task: { kind: "list", file }, timeout });
     if (response.kind !== "cases") {
       throw new Error(`${file}: ${describeResponse(response)?.message}`);
     }
@@ -718,13 +727,14 @@ async function runEvals({
   pool,
   files,
   options,
+  reportStart,
   reportTrial
 }) {
   const startedAt = Date.now();
   const listTimeout = options.timeout ?? defaultTimeout;
   const plans = await buildPlans({ pool, files, timeout: listTimeout });
   const evals = await Promise.all(plans.map(async (plan) => {
-    const cases = await Promise.all(plan.eval.cases.map((caseProps) => runCase({ pool, plan, caseProps, options, reportTrial })));
+    const cases = await Promise.all(plan.eval.cases.map((caseProps) => runCase({ pool, plan, caseProps, options, reportStart, reportTrial })));
     return {
       name: plan.eval.name,
       total: cases.length,
@@ -750,11 +760,12 @@ var COLORED = {
   ok: "\x1B[32m",
   fail: "\x1B[31m",
   key: "\x1B[34m",
+  head: "\x1B[38;5;208m",
   reset: "\x1B[0m"
 };
-var PLAIN = { ok: "", fail: "", key: "", reset: "" };
+var PLAIN = { ok: "", fail: "", key: "", head: "", reset: "" };
 var outputLimit = 200;
-var statusWidth = 4;
+var statusWidth = 5;
 function formatMs(ms) {
   if (ms < 1000) {
     return `${ms}ms`;
@@ -780,12 +791,14 @@ function renderStatus(passed, palette) {
   }
   return `${palette.fail}fail${palette.reset}`;
 }
-function padStatus(passed, palette) {
-  const word = passed ? "ok" : "fail";
-  return `${renderStatus(passed, palette)}${" ".repeat(statusWidth - word.length)}`;
+function padStatus(word, rendered) {
+  return `${rendered}${" ".repeat(statusWidth - word.length)}`;
 }
 function renderFields(fields, palette) {
   return fields.map(([key, value]) => `${palette.key}${key}=${palette.reset}${value}`).join(" ");
+}
+function renderHead([key, value], palette) {
+  return `${palette.head}${key}=${palette.reset}${value}`;
 }
 function collectTrialFields(record, minScore) {
   const fields = [];
@@ -807,6 +820,18 @@ function collectTrialFields(record, minScore) {
   }
   return fields;
 }
+function formatStartLine(report, color) {
+  const palette = color ? COLORED : PLAIN;
+  const fields = [
+    ["eval", formatValue(report.evalName)],
+    ["case", formatValue(report.caseName)],
+    ["trial", String(report.trial)]
+  ];
+  if (report.retries > 0) {
+    fields.push(["retries", String(report.retries)]);
+  }
+  return `${padStatus("start", "start")} ${renderFields(fields, palette)}`;
+}
 function formatTrialLine(report, color) {
   const palette = color ? COLORED : PLAIN;
   const passed = checkTrial(report.record, report.minScore);
@@ -816,7 +841,8 @@ function formatTrialLine(report, color) {
     ["trial", String(report.trial)],
     ...collectTrialFields(report.record, report.minScore)
   ];
-  return `${padStatus(passed, palette)} ${renderFields(fields, palette)}`;
+  const status = padStatus(passed ? "ok" : "fail", renderStatus(passed, palette));
+  return `${status} ${renderFields(fields, palette)}`;
 }
 function formatReport(record, color) {
   const palette = color ? COLORED : PLAIN;
@@ -824,20 +850,21 @@ function formatReport(record, color) {
   let total = 0;
   let passed = 0;
   for (const evalRecord of record.evals) {
-    lines.push(renderFields([
-      ["eval", formatValue(evalRecord.name)],
+    const evalField = renderHead(["eval", formatValue(evalRecord.name)], palette);
+    const counters = renderFields([
       ["total", String(evalRecord.total)],
       ["passed", String(evalRecord.passed)],
       ["failed", String(evalRecord.total - evalRecord.passed)]
-    ], palette));
+    ], palette);
+    lines.push(`${evalField} ${counters}`);
     total = total + evalRecord.total;
     passed = passed + evalRecord.passed;
     for (const caseRecord of evalRecord.cases) {
-      const caseField = renderFields([["case", formatValue(caseRecord.name)]], palette);
+      const caseField = renderHead(["case", formatValue(caseRecord.name)], palette);
       lines.push(`  ${caseField} ${renderStatus(caseRecord.passed, palette)}`);
       for (let i = 0;i < caseRecord.trials.length; i++) {
         const trial = caseRecord.trials[i];
-        const trialField = renderFields([["trial", String(i + 1)]], palette);
+        const trialField = renderHead(["trial", String(i + 1)], palette);
         const status = renderStatus(checkTrial(trial, caseRecord.minScore), palette);
         const fields = renderFields(collectTrialFields(trial, caseRecord.minScore), palette);
         lines.push(`    ${trialField} ${status} ${fields}`);
@@ -894,6 +921,7 @@ class WorkerEval {
       }, killGrace);
     }, job.timeout);
     this.worker.postMessage(job.task);
+    job.handleStart?.();
   }
   close() {
     this.closed = true;
@@ -968,7 +996,11 @@ class Pool {
       this.workers.push(new WorkerEval(() => this.pump()));
     }
   }
-  send(task, timeout) {
+  send({
+    task,
+    timeout,
+    handleStart
+  }) {
     if (this.closed) {
       throw new Error("\u043F\u0443\u043B \u0443\u0436\u0435 \u0437\u0430\u043A\u0440\u044B\u0442");
     }
@@ -976,6 +1008,7 @@ class Pool {
       this.jobs.push({
         task,
         timeout,
+        handleStart,
         handleResponse: (response, ms) => resolve2({ response, ms })
       });
       this.pump();
@@ -1140,6 +1173,7 @@ async function runCli(argv, cwd) {
       pool,
       files,
       options: args.options,
+      reportStart: (report) => console.log(formatStartLine(report, color)),
       reportTrial: (report) => console.log(formatTrialLine(report, color))
     });
     console.log("");

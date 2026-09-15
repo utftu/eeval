@@ -5,7 +5,13 @@ import { join } from "node:path";
 
 import { Pool } from "../pool/pool.ts";
 import type { RunRecord } from "../types.ts";
-import { checkTrial, type RunOptions, runEvals, type TrialReport } from "./runner.ts";
+import {
+  checkTrial,
+  type RunOptions,
+  runEvals,
+  type StartReport,
+  type TrialReport,
+} from "./runner.ts";
 
 const root = await mkdtemp(join(tmpdir(), "ordeal-runner-"));
 const entry = join(import.meta.dir, "..", "ordeal.ts");
@@ -30,19 +36,21 @@ const base: RunOptions = { trials: 1, retries: 0 };
 async function run(
   files: string[],
   options: RunOptions,
-): Promise<{ record: RunRecord; reported: TrialReport[] }> {
+): Promise<{ record: RunRecord; reported: TrialReport[]; started: StartReport[] }> {
   const pool = new Pool(1);
   const reported: TrialReport[] = [];
+  const started: StartReport[] = [];
 
   try {
     const record = await runEvals({
       pool,
       files,
       options,
+      reportStart: (report) => started.push(report),
       reportTrial: (report) => reported.push(report),
     });
 
-    return { record, reported };
+    return { record, reported, started };
   } finally {
     pool.close();
   }
@@ -196,13 +204,52 @@ export const ev = createEval("e", (ctx) => {
 });
 `);
 
-  const { record } = await run([file], { trials: 1, retries: 2 });
+  const { record, started } = await run([file], { trials: 1, retries: 2 });
   const caseRecord = record.evals[0]!.cases[0]!;
 
   expect(caseRecord.trials[0]?.score).toBe(80);
   expect(caseRecord.passed).toBe(true);
   expect(caseRecord.trials[0]?.retries).toBe(2);
+  expect(started.map((item) => [item.caseName, item.trial, item.retries])).toEqual([
+    ["c", 1, 0],
+    ["c", 1, 1],
+    ["c", 1, 2],
+  ]);
 });
+
+test("начало trial сообщается, только когда он попал в воркер", async () => {
+  const file = await writeEval(`
+export const ev = createEval("e", (ctx) => {
+  for (const name of ["first", "second"]) {
+    ctx.createCase({ name, minScore: 50 }, async () => {
+      await Bun.sleep(200);
+      return 90;
+    });
+  }
+});
+`);
+
+  // Один воркер: second ждёт в очереди и стартует только после конца first.
+  // Сравнивается время, а не порядок событий: воркер берёт second синхронно
+  // при освобождении, а результат first доходит до reportTrial на несколько
+  // микрозадач позже, поэтому start second приходит раньше done first.
+  const pool = new Pool(1);
+  const startedAt = new Map<string, number>();
+
+  try {
+    await runEvals({
+      pool,
+      files: [file],
+      options: base,
+      reportStart: (report) => startedAt.set(report.caseName, Date.now()),
+      reportTrial: () => {},
+    });
+  } finally {
+    pool.close();
+  }
+
+  expect(startedAt.get("second")! - startedAt.get("first")!).toBeGreaterThanOrEqual(190);
+}, 15000);
 
 test("retries кончились — кейс красный", async () => {
   const file = await writeEval(`
@@ -270,6 +317,7 @@ export const ev = createEval("e", (ctx) => {
       pool,
       files: [file],
       options: { trials: 3, retries: 0 },
+      reportStart: () => {},
       reportTrial: () => {},
     });
 
@@ -299,6 +347,7 @@ export const ev = createEval("${name}", (ctx) => {
       pool,
       files: [first, second],
       options: { trials: 1, retries: 0 },
+      reportStart: () => {},
       reportTrial: () => {},
     });
 

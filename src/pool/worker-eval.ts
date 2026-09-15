@@ -18,6 +18,8 @@ export const DROPPED_RESPONSE: JobResponse = {
 export type Job = {
   task: Task;
   timeout: number;
+  // Зовётся, когда Job отдан воркеру: до этого он ждёт в очереди.
+  handleStart?: () => void;
   handleResponse: (response: JobResponse, ms: number) => void;
 };
 
@@ -78,6 +80,7 @@ export class WorkerEval {
     }, job.timeout);
 
     this.worker.postMessage(job.task);
+    job.handleStart?.();
   }
 
   // Закрытие обязано ответить незавершённому Job. Если этого не делать,

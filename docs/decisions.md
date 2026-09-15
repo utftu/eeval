@@ -260,15 +260,22 @@ Not chosen: слать в воркер сам кейс — функции не �
 
 ### Вывод
 
-Decided: раннер не печатает ничего. Готовый trial уходит в колбэк `reportTrial({ evalName, caseName, trial, minScore, record })`, запись запуска возвращается наружу; печатает CLI обычным `console.log`. Строки собирают чистые функции `formatTrialLine` и `formatReport` в `format/`. Правило «trial прошёл» одно — `checkTrial(record, minScore)` в раннере, `format` берёт его оттуда.
+Decided: раннер не печатает ничего. Попытка trial, отданная воркеру, уходит в колбэк `reportStart({ evalName, caseName, trial, retries })`, готовый trial — в `reportTrial({ evalName, caseName, trial, minScore, record })`, запись запуска возвращается наружу; печатает CLI обычным `console.log`. Строки собирают чистые функции `formatStartLine`, `formatTrialLine` и `formatReport` в `format/`. Правило «trial прошёл» одно — `checkTrial(record, minScore)` в раннере, `format` берёт его оттуда.
 
-Во время прогона — строка на trial, по мере готовности, вида `ключ=значение`:
+Момент старта знает только пул: `pool.send({ task, timeout, handleStart })` зовёт `handleStart`, когда Job отдан воркеру, а не когда встал в очередь. Раннер оборачивает его в `reportStart` с числом повторов до этой попытки.
+
+Во время прогона — строка `start` на каждую попытку trial и строка на готовый trial, вперемешку, по мере событий, вида `ключ=значение`:
 
 ```text
-ok   eval=return-decision case="брак с фото в срок" trial=1 score=94 time=1.8s output={"verdict":"refund"}
-fail eval=summary case="длинный текст" trial=2 time=60.0s retries=2 error="TimeoutError: не уложился"
-fail eval=return-decision case=передумал trial=1 score=61 minScore=80 time=400ms output={"verdict":"partial"}
+start eval=return-decision case="брак с фото в срок" trial=1
+ok    eval=return-decision case="брак с фото в срок" trial=1 score=94 time=1.8s output={"verdict":"refund"}
+start eval=summary case="длинный текст" trial=2 retries=2
+fail  eval=summary case="длинный текст" trial=2 time=60.0s retries=2 error="TimeoutError: не уложился"
+fail  eval=return-decision case=передумал trial=1 score=61 minScore=80 time=400ms output={"verdict":"partial"}
 ```
+
+Because: владелец — видно, что сейчас исполняется, без живого экрана. Строка `start` на попытку, а не на trial: повтор тоже занимает воркер и тоже может зависнуть.
+Not chosen: живой блок внизу терминала с перерисовкой на месте — владелец: слишком сложно; кроме того, `console.log` из кейса, пишущий в общий stdout, ломал бы перерисовку. `start` в момент постановки в очередь — при занятых воркерах все строки вылетали бы разом и не говорили бы, что исполняется.
 
 В конце — итог деревом в порядке объявления и общая строка:
 

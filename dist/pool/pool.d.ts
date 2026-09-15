@@ -4,7 +4,11 @@ export declare class Pool {
     private jobs;
     private closed;
     constructor(size: number);
-    send(task: Task, timeout: number): Promise<{
+    send({ task, timeout, handleStart, }: {
+        task: Task;
+        timeout: number;
+        handleStart?: () => void;
+    }): Promise<{
         response: JobResponse;
         ms: number;
     }>;

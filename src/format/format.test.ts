@@ -1,12 +1,22 @@
 import { expect, test } from "bun:test";
 
 import type { RunRecord } from "../types.ts";
-import { formatReport, formatTrialLine } from "./format.ts";
+import { formatReport, formatStartLine, formatTrialLine } from "./format.ts";
 
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const BLUE = "\x1b[34m";
+const ORANGE = "\x1b[38;5;208m";
 const RESET = "\x1b[0m";
+
+test("строка начала trial: эвал, кейс, номер, retries только при повторе", () => {
+  expect(formatStartLine({ evalName: "failures", caseName: "ниже порога", trial: 1, retries: 0 }, false)).toBe(
+    'start eval=failures case="ниже порога" trial=1',
+  );
+  expect(formatStartLine({ evalName: "e", caseName: "c", trial: 2, retries: 1 }, false)).toBe(
+    "start eval=e case=c trial=2 retries=1",
+  );
+});
 
 test("строка trial: статус, эвал, кейс в кавычках, номер, балл, время и output", () => {
   const line = formatTrialLine(
@@ -21,7 +31,7 @@ test("строка trial: статус, эвал, кейс в кавычках, 
   );
 
   expect(line).toBe(
-    'ok   eval=return-decision case="брак с фото" trial=2 score=94 time=1.8s output={"verdict":"refund"}',
+    'ok    eval=return-decision case="брак с фото" trial=2 score=94 time=1.8s output={"verdict":"refund"}',
   );
 });
 
@@ -37,7 +47,7 @@ test("trial ниже порога показывает порог", () => {
     false,
   );
 
-  expect(line).toBe("fail eval=e case=передумал trial=1 score=61 minScore=80 time=400ms");
+  expect(line).toBe("fail  eval=e case=передумал trial=1 score=61 minScore=80 time=400ms");
 });
 
 test("упавший trial показывает retries и ошибку, но не порог", () => {
@@ -56,7 +66,7 @@ test("упавший trial показывает retries и ошибку, но н
     false,
   );
 
-  expect(line).toBe('fail eval=e case=c trial=1 time=60.0s retries=2 error="TimeoutError: не уложился"');
+  expect(line).toBe('fail  eval=e case=c trial=1 time=60.0s retries=2 error="TimeoutError: не уложился"');
 });
 
 test("длинный output обрезается", () => {
@@ -88,7 +98,7 @@ test("с цветом: ok зелёный, fail красный, имена пол
   );
 
   expect(failed).toBe(
-    `${RED}fail${RESET} ${BLUE}eval=${RESET}e ${BLUE}case=${RESET}c ${BLUE}trial=${RESET}1 ` +
+    `${RED}fail${RESET}  ${BLUE}eval=${RESET}e ${BLUE}case=${RESET}c ${BLUE}trial=${RESET}1 ` +
       `${BLUE}score=${RESET}61 ${BLUE}minScore=${RESET}80 ${BLUE}time=${RESET}400ms`,
   );
 
@@ -103,7 +113,7 @@ test("с цветом: ok зелёный, fail красный, имена пол
     true,
   );
 
-  expect(passed.startsWith(`${GREEN}ok${RESET}   ${BLUE}eval=`)).toBe(true);
+  expect(passed.startsWith(`${GREEN}ok${RESET}    ${BLUE}eval=`)).toBe(true);
 });
 
 test("итог — дерево эвал, кейс, trial и общая строка", () => {
@@ -152,6 +162,6 @@ test("итог — дерево эвал, кейс, trial и общая стро
 
   const colored = formatReport(record, true);
 
-  expect(colored).toContain(`  ${BLUE}case=${RESET}передумал ${RED}fail${RESET}`);
-  expect(colored).toContain(`    ${BLUE}trial=${RESET}1 ${GREEN}ok${RESET} ${BLUE}score=${RESET}94`);
+  expect(colored).toContain(`  ${ORANGE}case=${RESET}передумал ${RED}fail${RESET}`);
+  expect(colored).toContain(`    ${ORANGE}trial=${RESET}1 ${GREEN}ok${RESET} ${BLUE}score=${RESET}94`);
 });

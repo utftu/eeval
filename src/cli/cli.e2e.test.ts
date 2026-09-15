@@ -57,8 +57,9 @@ export const ev = createEval("return-decision", (ctx) => {
   const { code, stdout } = await runBinary(directory, ["-t", "2"]);
 
   expect(code).toBe(1);
-  expect(stdout).toContain("ok   eval=return-decision case=прошёл trial=1 score=92");
-  expect(stdout).toContain('fail eval=return-decision case="не дотянул" trial=2 score=61 minScore=80');
+  expect(stdout).toContain("start eval=return-decision case=прошёл trial=1\n");
+  expect(stdout).toContain("ok    eval=return-decision case=прошёл trial=1 score=92");
+  expect(stdout).toContain('fail  eval=return-decision case="не дотянул" trial=2 score=61 minScore=80');
   expect(stdout).toContain('  case="не дотянул" fail');
   expect(stdout).toContain("total=2 passed=1 failed=1");
 

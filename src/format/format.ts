@@ -1,4 +1,4 @@
-import { checkTrial, type TrialReport } from "../runner/runner.ts";
+import { checkTrial, type StartReport, type TrialReport } from "../runner/runner.ts";
 import type { RunRecord, TrialRecord } from "../types.ts";
 
 // Чистые функции вывода: раннер их не зовёт, печатает CLI. Красить ли, решает
@@ -8,22 +8,26 @@ type Palette = {
   ok: string;
   fail: string;
   key: string;
+  head: string;
   reset: string;
 };
 
 type Field = [key: string, value: string];
 
+// head — оранжевый из 256 цветов: у базовых восьми оранжевого нет.
 const COLORED: Palette = {
   ok: "\x1b[32m",
   fail: "\x1b[31m",
   key: "\x1b[34m",
+  head: "\x1b[38;5;208m",
   reset: "\x1b[0m",
 };
 
-const PLAIN: Palette = { ok: "", fail: "", key: "", reset: "" };
+const PLAIN: Palette = { ok: "", fail: "", key: "", head: "", reset: "" };
 
 const outputLimit = 200;
-const statusWidth = 4;
+// По самому длинному статусу — start.
+const statusWidth = 5;
 
 function formatMs(ms: number): string {
   if (ms < 1000) {
@@ -64,14 +68,18 @@ function renderStatus(passed: boolean, palette: Palette): string {
 }
 
 // Ширина считается по слову без цвета: escape-коды места в терминале не занимают.
-function padStatus(passed: boolean, palette: Palette): string {
-  const word = passed ? "ok" : "fail";
-
-  return `${renderStatus(passed, palette)}${" ".repeat(statusWidth - word.length)}`;
+function padStatus(word: string, rendered: string): string {
+  return `${rendered}${" ".repeat(statusWidth - word.length)}`;
 }
 
 function renderFields(fields: Field[], palette: Palette): string {
   return fields.map(([key, value]) => `${palette.key}${key}=${palette.reset}${value}`).join(" ");
+}
+
+// Первое поле строки итога — eval, case или trial — выделено цветом, чтобы
+// уровни дерева читались глазами.
+function renderHead([key, value]: Field, palette: Palette): string {
+  return `${palette.head}${key}=${palette.reset}${value}`;
 }
 
 function collectTrialFields(record: TrialRecord, minScore: number): Field[] {
@@ -102,6 +110,21 @@ function collectTrialFields(record: TrialRecord, minScore: number): Field[] {
   return fields;
 }
 
+export function formatStartLine(report: StartReport, color: boolean): string {
+  const palette = color ? COLORED : PLAIN;
+  const fields: Field[] = [
+    ["eval", formatValue(report.evalName)],
+    ["case", formatValue(report.caseName)],
+    ["trial", String(report.trial)],
+  ];
+
+  if (report.retries > 0) {
+    fields.push(["retries", String(report.retries)]);
+  }
+
+  return `${padStatus("start", "start")} ${renderFields(fields, palette)}`;
+}
+
 export function formatTrialLine(report: TrialReport, color: boolean): string {
   const palette = color ? COLORED : PLAIN;
   const passed = checkTrial(report.record, report.minScore);
@@ -111,8 +134,9 @@ export function formatTrialLine(report: TrialReport, color: boolean): string {
     ["trial", String(report.trial)],
     ...collectTrialFields(report.record, report.minScore),
   ];
+  const status = padStatus(passed ? "ok" : "fail", renderStatus(passed, palette));
 
-  return `${padStatus(passed, palette)} ${renderFields(fields, palette)}`;
+  return `${status} ${renderFields(fields, palette)}`;
 }
 
 export function formatReport(record: RunRecord, color: boolean): string {
@@ -122,28 +146,28 @@ export function formatReport(record: RunRecord, color: boolean): string {
   let passed = 0;
 
   for (const evalRecord of record.evals) {
-    lines.push(
-      renderFields(
-        [
-          ["eval", formatValue(evalRecord.name)],
-          ["total", String(evalRecord.total)],
-          ["passed", String(evalRecord.passed)],
-          ["failed", String(evalRecord.total - evalRecord.passed)],
-        ],
-        palette,
-      ),
+    const evalField = renderHead(["eval", formatValue(evalRecord.name)], palette);
+    const counters = renderFields(
+      [
+        ["total", String(evalRecord.total)],
+        ["passed", String(evalRecord.passed)],
+        ["failed", String(evalRecord.total - evalRecord.passed)],
+      ],
+      palette,
     );
+
+    lines.push(`${evalField} ${counters}`);
     total = total + evalRecord.total;
     passed = passed + evalRecord.passed;
 
     for (const caseRecord of evalRecord.cases) {
-      const caseField = renderFields([["case", formatValue(caseRecord.name)]], palette);
+      const caseField = renderHead(["case", formatValue(caseRecord.name)], palette);
 
       lines.push(`  ${caseField} ${renderStatus(caseRecord.passed, palette)}`);
 
       for (let i = 0; i < caseRecord.trials.length; i++) {
         const trial = caseRecord.trials[i]!;
-        const trialField = renderFields([["trial", String(i + 1)]], palette);
+        const trialField = renderHead(["trial", String(i + 1)], palette);
         const status = renderStatus(checkTrial(trial, caseRecord.minScore), palette);
         const fields = renderFields(collectTrialFields(trial, caseRecord.minScore), palette);
 

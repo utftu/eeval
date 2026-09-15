@@ -51,15 +51,18 @@ ordeal -t 5 -r 2 -c 8
 
 ## Вывод
 
-Во время прогона — строка на каждый готовый trial:
+Во время прогона — строка `start`, когда trial попал в воркер (и на каждый повтор, с `retries=`), и строка на каждый готовый trial:
 
 ```text
-ok   eval=return-decision case="брак с фото в срок" trial=1 score=100 time=312ms output={"verdict":"refund"}
-fail eval=failures case="ниже порога" trial=1 score=61 minScore=80 time=2ms output={"note":"ответ неполный"}
-fail eval=failures case=зависает trial=1 time=2.0s error="TimeoutError: кейс не уложился в 1000мс и был убит"
+start eval=return-decision case="брак с фото в срок" trial=1
+start eval=failures case="ниже порога" trial=1
+fail  eval=failures case="ниже порога" trial=1 score=61 minScore=80 time=2ms output={"note":"ответ неполный"}
+ok    eval=return-decision case="брак с фото в срок" trial=1 score=100 time=312ms output={"verdict":"refund"}
+start eval=failures case=зависает trial=1
+fail  eval=failures case=зависает trial=1 time=2.0s error="TimeoutError: кейс не уложился в 1000мс и был убит"
 ```
 
-В конце — итог деревом в порядке объявления и общая строка:
+В конце — итог деревом в порядке объявления и общая строка. В терминале `eval=`, `case=` и `trial=` в начале строк итога оранжевые:
 
 ```text
 eval=failures total=3 passed=1 failed=2

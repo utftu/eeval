@@ -3,6 +3,7 @@ export declare const DROPPED_RESPONSE: JobResponse;
 export type Job = {
     task: Task;
     timeout: number;
+    handleStart?: () => void;
     handleResponse: (response: JobResponse, ms: number) => void;
 };
 export declare class WorkerEval {

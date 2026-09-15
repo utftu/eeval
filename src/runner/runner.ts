@@ -25,6 +25,16 @@ export type TrialReport = {
 
 export type ReportTrial = (report: TrialReport) => void;
 
+// Попытка trial отдана воркеру. retries — сколько повторов было до неё.
+export type StartReport = {
+  evalName: string;
+  caseName: string;
+  trial: number;
+  retries: number;
+};
+
+export type ReportStart = (report: StartReport) => void;
+
 // Раннер решает, что запускать, и собирает запись запуска. Он ничего не
 // печатает и ничего не пишет на диск: готовый trial отдаёт в reportTrial,
 // а запись возвращает наружу.
@@ -64,11 +74,13 @@ async function runTrial({
   task,
   timeout,
   retries,
+  handleStart,
 }: {
   pool: Pool;
   task: Task;
   timeout: number;
   retries: number;
+  handleStart: (retries: number) => void;
 }): Promise<TrialRecord> {
   // Время trial — сумма выполнения всех попыток в воркере. Ожидание свободного
   // воркера перед каждой попыткой не считается: оно зависит от --concurrency
@@ -77,7 +89,8 @@ async function runTrial({
   let used = 0;
 
   while (true) {
-    const sent = await pool.send(task, timeout);
+    const before = used;
+    const sent = await pool.send({ task, timeout, handleStart: () => handleStart(before) });
     const response = sent.response;
     ms = ms + sent.ms;
 
@@ -108,12 +121,14 @@ async function runCase({
   plan,
   caseProps,
   options,
+  reportStart,
   reportTrial,
 }: {
   pool: Pool;
   plan: Plan;
   caseProps: CaseProps;
   options: RunOptions;
+  reportStart: ReportStart;
   reportTrial: ReportTrial;
 }): Promise<CaseRecord> {
   const task: Task = {
@@ -134,6 +149,13 @@ async function runCase({
         task,
         timeout,
         retries: options.retries,
+        handleStart: (retries) =>
+          reportStart({
+            evalName: plan.eval.name,
+            caseName: caseProps.name,
+            trial: i + 1,
+            retries,
+          }),
       });
 
       reportTrial({
@@ -172,7 +194,7 @@ async function buildPlans({
   const seen = new Map<string, string>();
 
   for (const file of files) {
-    const { response } = await pool.send({ kind: "list", file }, timeout);
+    const { response } = await pool.send({ task: { kind: "list", file }, timeout });
 
     if (response.kind !== "cases") {
       throw new Error(`${file}: ${describeResponse(response)?.message}`);
@@ -199,11 +221,13 @@ export async function runEvals({
   pool,
   files,
   options,
+  reportStart,
   reportTrial,
 }: {
   pool: Pool;
   files: string[];
   options: RunOptions;
+  reportStart: ReportStart;
   reportTrial: ReportTrial;
 }): Promise<RunRecord> {
   const startedAt = Date.now();
@@ -218,7 +242,7 @@ export async function runEvals({
     plans.map(async (plan): Promise<EvalRecord> => {
       const cases = await Promise.all(
         plan.eval.cases.map((caseProps) =>
-          runCase({ pool, plan, caseProps, options, reportTrial }),
+          runCase({ pool, plan, caseProps, options, reportStart, reportTrial }),
         ),
       );
 

@@ -29,7 +29,16 @@ export class Pool {
   // ответом об ошибке: неудача кейса это нормальный исход, а не исключение.
   // Бросается только обращение к уже закрытому пулу, то есть ошибка вызывающего.
   // ms — сколько Job выполнялся в воркере, без ожидания в очереди.
-  send(task: Task, timeout: number): Promise<{ response: JobResponse; ms: number }> {
+  // handleStart — момент, когда Job отдан воркеру, а не поставлен в очередь.
+  send({
+    task,
+    timeout,
+    handleStart,
+  }: {
+    task: Task;
+    timeout: number;
+    handleStart?: () => void;
+  }): Promise<{ response: JobResponse; ms: number }> {
     if (this.closed) {
       throw new Error("пул уже закрыт");
     }
@@ -38,6 +47,7 @@ export class Pool {
       this.jobs.push({
         task,
         timeout,
+        handleStart,
         handleResponse: (response, ms) => resolve({ response, ms }),
       });
       this.pump();
