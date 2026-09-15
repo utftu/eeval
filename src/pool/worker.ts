@@ -39,12 +39,16 @@ async function loadEvals(file: string): Promise<EvalEnt[]> {
 // run — функция, а функции structured clone не переносит, и postMessage
 // упал бы DataCloneError на первом же list.
 function listEvals(evals: EvalEnt[]): EvalConfig[] {
-  return evals.map(({ name, cases }) => ({
+  return evals.map(({ name, only, skip, cases }) => ({
     name,
-    cases: cases.map(({ name, minScore, timeout }) => ({
+    only,
+    skip,
+    cases: cases.map(({ name, minScore, timeout, only, skip }) => ({
       name,
       minScore,
       timeout,
+      only,
+      skip,
     })),
   }));
 }

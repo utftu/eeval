@@ -2,6 +2,8 @@ import type { CaseProps } from "../eval/eval.ts";
 
 export type EvalConfig = {
   name: string;
+  only?: boolean;
+  skip?: boolean;
   cases: CaseProps[];
 };
 

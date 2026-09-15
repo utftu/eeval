@@ -1,7 +1,7 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
-import { latestKeep } from "../consts.ts";
+import { historyKeep, historyLimit, latestKeep } from "../consts.ts";
 import type { RunRecord } from "../types.ts";
 
 // history.jsonl растёт вечно, поэтому output в него не пишется — он живёт
@@ -36,10 +36,31 @@ async function readLatest(path: string): Promise<RunRecord[]> {
   return parsed as RunRecord[];
 }
 
+// Пока строк не больше historyLimit, файл только дописывается. Стало больше —
+// остаются последние historyKeep: перезапись раз в сотню запусков, а не на
+// каждом. Строки режутся по переводам строк без разбора JSON. Запись идёт
+// во временный файл и переименованием: падение посреди записи не теряет историю.
+async function trimHistory(path: string): Promise<void> {
+  const text = await Bun.file(path).text();
+  const lines = text.split("\n").filter((line) => line !== "");
+
+  if (lines.length <= historyLimit) {
+    return;
+  }
+
+  const temporary = `${path}.tmp`;
+
+  await Bun.write(temporary, `${lines.slice(-historyKeep).join("\n")}\n`);
+  await rename(temporary, path);
+}
+
 export async function writeRecord(root: string, record: RunRecord): Promise<void> {
   await mkdir(root, { recursive: true });
 
-  await appendFile(join(root, "history.jsonl"), `${JSON.stringify(stripOutputs(record))}\n`);
+  const historyPath = join(root, "history.jsonl");
+
+  await appendFile(historyPath, `${JSON.stringify(stripOutputs(record))}\n`);
+  await trimHistory(historyPath);
 
   const latestPath = join(root, "latest.json");
   const previous = await readLatest(latestPath);

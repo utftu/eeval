@@ -28,6 +28,45 @@ test("кейсы собираются в порядке объявления с�
   expect(created.cases[1]?.timeout).toBe(5000);
 });
 
+test("опции эвала — необязательный второй аргумент", () => {
+  const plain = createEval("plain", (ctx) => {
+    ctx.createCase({ name: "c", minScore: 50 }, async () => 90);
+  });
+  const skipped = createEval("skipped", { skip: true }, (ctx) => {
+    ctx.createCase({ name: "c", minScore: 50 }, async () => 90);
+  });
+
+  expect(plain.only).toBeUndefined();
+  expect(plain.skip).toBeUndefined();
+  expect(plain.cases).toHaveLength(1);
+  expect(skipped.skip).toBe(true);
+  expect(skipped.only).toBeUndefined();
+  expect(skipped.cases).toHaveLength(1);
+});
+
+test("only и skip кейса сохраняются", () => {
+  const created = createEval("e", (ctx) => {
+    ctx.createCase({ name: "only", minScore: 50, only: true }, async () => 90);
+    ctx.createCase({ name: "skip", minScore: 50, skip: true }, async () => 90);
+  });
+
+  expect(created.cases.map((item) => [item.name, item.only, item.skip])).toEqual([
+    ["only", true, undefined],
+    ["skip", undefined, true],
+  ]);
+});
+
+test("only и skip сразу бросают — и у эвала, и у кейса", () => {
+  expect(() => createEval("e", { only: true, skip: true }, () => {})).toThrow(
+    'эвал "e" помечен и only, и skip',
+  );
+  expect(() =>
+    createEval("e", (ctx) => {
+      ctx.createCase({ name: "c", minScore: 50, only: true, skip: true }, async () => 90);
+    }),
+  ).toThrow('кейс "c" помечен и only, и skip');
+});
+
 test("повтор имени кейса бросает", () => {
   expect(() =>
     createEval("return-decision", (ctx) => {

@@ -144,26 +144,32 @@ export function formatReport(record: RunRecord, color: boolean): string {
   const lines: string[] = [];
   let total = 0;
   let passed = 0;
+  let skipped = 0;
 
   for (const evalRecord of record.evals) {
     const evalField = renderHead(["eval", formatValue(evalRecord.name)], palette);
-    const counters = renderFields(
-      [
-        ["total", String(evalRecord.total)],
-        ["passed", String(evalRecord.passed)],
-        ["failed", String(evalRecord.total - evalRecord.passed)],
-      ],
-      palette,
-    );
+    // skipped= печатается, только когда пропущенные есть: обычный итог не меняется.
+    const counters: Field[] = [
+      ["total", String(evalRecord.total)],
+      ["passed", String(evalRecord.passed)],
+      ["failed", String(evalRecord.total - evalRecord.passed - evalRecord.skipped)],
+    ];
 
-    lines.push(`${evalField} ${counters}`);
+    if (evalRecord.skipped > 0) {
+      counters.push(["skipped", String(evalRecord.skipped)]);
+    }
+
+    lines.push(`${evalField} ${renderFields(counters, palette)}`);
     total = total + evalRecord.total;
     passed = passed + evalRecord.passed;
+    skipped = skipped + evalRecord.skipped;
 
+    // У пропущенного кейса trials пустые, поэтому строк trial под ним нет.
     for (const caseRecord of evalRecord.cases) {
       const caseField = renderHead(["case", formatValue(caseRecord.name)], palette);
+      const caseStatus = caseRecord.skipped ? "skip" : renderStatus(caseRecord.passed, palette);
 
-      lines.push(`  ${caseField} ${renderStatus(caseRecord.passed, palette)}`);
+      lines.push(`  ${caseField} ${caseStatus}`);
 
       for (let i = 0; i < caseRecord.trials.length; i++) {
         const trial = caseRecord.trials[i]!;
@@ -176,17 +182,23 @@ export function formatReport(record: RunRecord, color: boolean): string {
     }
   }
 
-  lines.push(
-    renderFields(
-      [
-        ["total", String(total)],
-        ["passed", String(passed)],
-        ["failed", String(total - passed)],
-        ["time", formatMs(record.ms)],
-      ],
-      palette,
-    ),
-  );
+  // only= напоминает, что прогон неполный: забытый only в CI иначе не заметить.
+  const summary: Field[] = [
+    ["total", String(total)],
+    ["passed", String(passed)],
+    ["failed", String(total - passed - skipped)],
+  ];
+
+  if (skipped > 0) {
+    summary.push(["skipped", String(skipped)]);
+  }
+
+  if (record.only !== undefined) {
+    summary.push(["only", String(record.only)]);
+  }
+
+  summary.push(["time", formatMs(record.ms)]);
+  lines.push(renderFields(summary, palette));
 
   return lines.join("\n");
 }

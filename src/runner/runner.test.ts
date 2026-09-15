@@ -7,6 +7,7 @@ import { Pool } from "../pool/pool.ts";
 import type { RunRecord } from "../types.ts";
 import {
   checkTrial,
+  pickMode,
   type RunOptions,
   runEvals,
   type StartReport,
@@ -377,3 +378,85 @@ export const ev = createEval("e", (ctx) => {
   expect(record.ms).toBeGreaterThanOrEqual(600);
   expect(trials.every((trial) => trial.ms >= 290 && trial.ms < 550)).toBe(true);
 }, 15000);
+
+test("флаг эвала решает за кейсы, флаг кейса — только без флага эвала", () => {
+  const plain = { name: "e", cases: [] };
+  const onlyEval = { name: "e", only: true, cases: [] };
+  const skipEval = { name: "e", skip: true, cases: [] };
+
+  expect(pickMode(plain, { name: "c", minScore: 0 })).toBeUndefined();
+  expect(pickMode(plain, { name: "c", minScore: 0, only: true })).toBe("only");
+  expect(pickMode(plain, { name: "c", minScore: 0, skip: true })).toBe("skip");
+  expect(pickMode(onlyEval, { name: "c", minScore: 0, skip: true })).toBe("only");
+  expect(pickMode(skipEval, { name: "c", minScore: 0, only: true })).toBe("skip");
+});
+
+test("skip кейса и эвала — кейсы не запускаются и пишутся пропущенными", async () => {
+  const file = await writeEval(`
+export const mixed = createEval("mixed", (ctx) => {
+  ctx.createCase({ name: "идёт", minScore: 50 }, async () => 90);
+  ctx.createCase({ name: "пропущен", minScore: 50, skip: true }, async () => {
+    throw new Error("не должен запускаться");
+  });
+});
+
+export const skipped = createEval("skipped", { skip: true }, (ctx) => {
+  ctx.createCase({ name: "c", minScore: 50 }, async () => {
+    throw new Error("не должен запускаться");
+  });
+});
+`);
+
+  const { record, started } = await run([file], base);
+  const mixed = record.evals.find((item) => item.name === "mixed")!;
+  const skipped = record.evals.find((item) => item.name === "skipped")!;
+
+  expect(started.map((item) => item.caseName)).toEqual(["идёт"]);
+  expect(record.only).toBeUndefined();
+  expect(mixed).toMatchObject({ total: 2, passed: 1, skipped: 1 });
+  expect(mixed.cases[1]).toEqual({
+    name: "пропущен",
+    minScore: 50,
+    passed: false,
+    skipped: true,
+    trials: [],
+  });
+  expect(skipped).toMatchObject({ total: 1, passed: 0, skipped: 1 });
+});
+
+test("only на весь запуск: неотобранные кейсы из других файлов пропущены", async () => {
+  const first = await writeEval(`
+export const ev = createEval("first", (ctx) => {
+  ctx.createCase({ name: "отобран", minScore: 50, only: true }, async () => 90);
+  ctx.createCase({ name: "не отобран", minScore: 50 }, async () => 90);
+});
+`);
+  const second = await writeEval(`
+export const ev = createEval("second", (ctx) => {
+  ctx.createCase({ name: "c", minScore: 50 }, async () => 90);
+});
+`);
+
+  const { record, started } = await run([first, second], base);
+
+  expect(started.map((item) => [item.evalName, item.caseName])).toEqual([["first", "отобран"]]);
+  expect(record.only).toBe(1);
+  expect(record.evals.map((item) => [item.name, item.passed, item.skipped])).toEqual([
+    ["first", 1, 1],
+    ["second", 0, 1],
+  ]);
+});
+
+test("only эвала запускает все его кейсы, даже со skip", async () => {
+  const file = await writeEval(`
+export const ev = createEval("e", { only: true }, (ctx) => {
+  ctx.createCase({ name: "a", minScore: 50 }, async () => 90);
+  ctx.createCase({ name: "b", minScore: 50, skip: true }, async () => 90);
+});
+`);
+
+  const { record } = await run([file], base);
+
+  expect(record.only).toBe(2);
+  expect(record.evals[0]).toMatchObject({ total: 2, passed: 2, skipped: 0 });
+});

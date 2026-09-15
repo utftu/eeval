@@ -116,6 +116,41 @@ test("с цветом: ok зелёный, fail красный, имена пол
   expect(passed.startsWith(`${GREEN}ok${RESET}    ${BLUE}eval=`)).toBe(true);
 });
 
+test("итог с пропущенными: skip у кейса, skipped и only в счётчиках", () => {
+  const record: RunRecord = {
+    version: 1,
+    startedAt: "2026-09-12T13:40:11.204Z",
+    ms: 1200,
+    options: { trials: 1, retries: 0 },
+    only: 1,
+    evals: [
+      {
+        name: "e",
+        total: 3,
+        passed: 1,
+        skipped: 1,
+        cases: [
+          { name: "a", minScore: 50, passed: true, trials: [{ score: 90, ms: 10, retries: 0 }] },
+          { name: "b", minScore: 50, passed: false, trials: [{ score: 10, ms: 10, retries: 0 }] },
+          { name: "c", minScore: 50, passed: false, skipped: true, trials: [] },
+        ],
+      },
+    ],
+  };
+
+  expect(formatReport(record, false)).toBe(
+    [
+      "eval=e total=3 passed=1 failed=1 skipped=1",
+      "  case=a ok",
+      "    trial=1 ok score=90 time=10ms",
+      "  case=b fail",
+      "    trial=1 fail score=10 minScore=50 time=10ms",
+      "  case=c skip",
+      "total=3 passed=1 failed=1 skipped=1 only=1 time=1.2s",
+    ].join("\n"),
+  );
+});
+
 test("итог — дерево эвал, кейс, trial и общая строка", () => {
   const record: RunRecord = {
     version: 1,
@@ -127,6 +162,7 @@ test("итог — дерево эвал, кейс, trial и общая стро
         name: "return-decision",
         total: 2,
         passed: 1,
+        skipped: 0,
         cases: [
           {
             name: "брак с фото",

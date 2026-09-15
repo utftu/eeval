@@ -54,6 +54,42 @@ export function checkTrial(record: TrialRecord, minScore: number): boolean {
   return record.score >= minScore;
 }
 
+type Mode = "only" | "skip";
+
+// Флаг уровня выше решает за уровень ниже: флаг эвала — за все его кейсы,
+// флаг кейса учитывается, только когда у эвала флага нет. Оба флага сразу
+// на одном уровне запрещены при объявлении, поэтому порядок проверок внутри
+// уровня не важен.
+export function pickMode(evalConfig: EvalConfig, caseProps: CaseProps): Mode | undefined {
+  if (evalConfig.only) {
+    return "only";
+  }
+
+  if (evalConfig.skip) {
+    return "skip";
+  }
+
+  if (caseProps.only) {
+    return "only";
+  }
+
+  if (caseProps.skip) {
+    return "skip";
+  }
+
+  return;
+}
+
+function skipCase(caseProps: CaseProps): CaseRecord {
+  return {
+    name: caseProps.name,
+    minScore: caseProps.minScore,
+    passed: false,
+    skipped: true,
+    trials: [],
+  };
+}
+
 function describeResponse(response: JobResponse): TrialRecord["error"] {
   if (response.kind === "error") {
     return {
@@ -238,18 +274,37 @@ export async function runEvals({
   // ограничивает только число воркеров. reportTrial зовётся по мере
   // готовности, поэтому trials разных кейсов и эвалов приходят вперемешку,
   // а в записи эвалы и кейсы лежат в порядке объявления — его держит Promise.all.
+  // only действует на весь запуск: если хоть один кейс отобран через only,
+  // все неотобранные не запускаются и пишутся пропущенными, как skip.
+  let only = 0;
+
+  for (const plan of plans) {
+    for (const caseProps of plan.eval.cases) {
+      if (pickMode(plan.eval, caseProps) === "only") {
+        only = only + 1;
+      }
+    }
+  }
+
   const evals = await Promise.all(
     plans.map(async (plan): Promise<EvalRecord> => {
       const cases = await Promise.all(
-        plan.eval.cases.map((caseProps) =>
-          runCase({ pool, plan, caseProps, options, reportStart, reportTrial }),
-        ),
+        plan.eval.cases.map((caseProps) => {
+          const mode = pickMode(plan.eval, caseProps);
+
+          if (mode === "skip" || (only > 0 && mode !== "only")) {
+            return skipCase(caseProps);
+          }
+
+          return runCase({ pool, plan, caseProps, options, reportStart, reportTrial });
+        }),
       );
 
       return {
         name: plan.eval.name,
         total: cases.length,
         passed: cases.filter((record) => record.passed).length,
+        skipped: cases.filter((record) => record.skipped).length,
         cases,
       };
     }),
@@ -264,6 +319,7 @@ export async function runEvals({
       retries: options.retries,
       timeout: options.timeout,
     },
+    only: only > 0 ? only : undefined,
     evals,
   };
 }

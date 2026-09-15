@@ -17,6 +17,7 @@ function createEvalRecord(name: string, score: number): EvalRecord {
     name,
     total: 1,
     passed: 1,
+    skipped: 0,
     cases: [
       {
         name: "брак с фото",
@@ -72,6 +73,38 @@ test("история копится, latest держит три последни
   expect(
     latest.map((item: RunRecord) => item.evals[0]?.cases[0]?.trials[0]?.score),
   ).toEqual([40, 30, 20]);
+});
+
+async function fillHistory(base: string, count: number): Promise<void> {
+  const lines = Array.from({ length: count }, (_, i) => `{"old":${i}}`);
+
+  await Bun.write(join(base, "history.jsonl"), `${lines.join("\n")}\n`);
+}
+
+test("история до 200 запусков не обрезается", async () => {
+  const base = join(root, "до-лимита");
+  await fillHistory(base, 199);
+  await writeRecord(base, createRecord(55));
+
+  const lines = (await Bun.file(join(base, "history.jsonl")).text()).trim().split("\n");
+
+  expect(lines).toHaveLength(200);
+  expect(lines[0]).toBe('{"old":0}');
+});
+
+test("больше 200 запусков — остаются последние 100, новый в конце", async () => {
+  const base = join(root, "сверх-лимита");
+  await fillHistory(base, 200);
+  await writeRecord(base, createRecord(66));
+
+  const text = await Bun.file(join(base, "history.jsonl")).text();
+  const lines = text.trim().split("\n");
+
+  expect(lines).toHaveLength(100);
+  expect(lines[0]).toBe('{"old":101}');
+  expect(JSON.parse(lines[99]!).evals[0].cases[0].trials[0].score).toBe(66);
+  expect(text.endsWith("\n")).toBe(true);
+  expect(await Bun.file(join(base, "history.jsonl.tmp")).exists()).toBe(false);
 });
 
 test("latest.json остаётся читаемым человеком", async () => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { Block, Cli, Param, globalArg } from "argblock";
+import { Cli } from "argblock";
 import { join } from "node:path";
 
 import {
@@ -9,7 +9,11 @@ import {
   ORDEAL_DIR,
 } from "../consts.ts";
 import { findEvalFiles } from "../discovery/discovery.ts";
-import { formatReport, formatStartLine, formatTrialLine } from "../format/format.ts";
+import {
+  formatReport,
+  formatStartLine,
+  formatTrialLine,
+} from "../format/format.ts";
 import { Pool } from "../pool/pool.ts";
 import { type RunOptions, runEvals } from "../runner/runner.ts";
 import { writeRecord } from "../storage/storage.ts";
@@ -24,86 +28,31 @@ type Args = {
   options: RunOptions;
 };
 
+// То, что argblock отдаёт в action: разобранные параметры и позиционные
+// аргументы вызванной команды.
+type Parsed = {
+  params: Record<string, unknown>;
+  positionals: Record<string, unknown>;
+};
+
 // Воркеров по умолчанию столько, сколько ядер, но не больше потолка: на
 // большой машине сотня воркеров упёрлась бы в rate limit API. Рантайм, который
 // не сообщает число ядер, получает одного воркера. Потолок касается только
 // значения по умолчанию — -c, заданный руками, не режется.
 export function pickConcurrency(cores: number | undefined): number {
-  if (typeof cores !== "number" || Number.isFinite(cores) === false || cores < 1) {
+  if (
+    typeof cores !== "number" ||
+    Number.isFinite(cores) === false ||
+    cores < 1
+  ) {
     return 1;
   }
 
   return Math.min(Math.floor(cores), defaultConcurrencyLimit);
 }
 
-// Число ядер читается здесь, при разборе аргументов, а не оседает константой
-// при загрузке модуля.
-//
-// У --timeout нет значения по умолчанию: argblock подставляет его так, что
-// не отличить от набранного руками, а «не задан» значит «каждый кейс берёт свой».
-function createParams(): Param[] {
-  return [
-    new Param({
-      name: "concurrency",
-      type: "number",
-      short: "c",
-      defaultValue: pickConcurrency(navigator.hardwareConcurrency),
-      description: `сколько воркеров, по умолчанию по числу ядер, но не больше ${defaultConcurrencyLimit}`,
-    }),
-    new Param({
-      name: "trials",
-      type: "number",
-      short: "t",
-      defaultValue: defaultTrials,
-      description: "сколько раз запускать каждый кейс",
-    }),
-    new Param({
-      name: "retries",
-      type: "number",
-      short: "r",
-      defaultValue: defaultRetries,
-      description: "сколько повторов при падении",
-    }),
-    new Param({
-      name: "timeout",
-      type: "number",
-      description: "мс на попытку, перебивает timeout кейса",
-    }),
-  ];
-}
-
-// Параметры и пути объявлены и на корне, и на run: голый ordeal и ordeal run
-// означают одно и то же.
-function createRoot(): Block {
-  const paths = [{ name: "paths", required: false, variadic: true }];
-
-  return new Block({
-    arg: globalArg,
-    params: createParams(),
-    positionals: paths,
-    description: "ordeal — прогон эвалов",
-    children: [
-      new Block({
-        arg: "run",
-        params: createParams(),
-        positionals: paths,
-        description: "прогон эвалов (команда по умолчанию)",
-        children: [],
-      }),
-    ],
-  });
-}
-
-// На --help argblock печатает справку сам, прогон не запускается.
-export function readArgs(argv: string[]): Args | undefined {
-  const parsed = new Cli(createRoot()).parse(argv);
-  const last = parsed[parsed.length - 1];
-
-  if (last === undefined) {
-    return;
-  }
-
-  const params = last.params as {
+export function readArgs(parsed: Parsed): Args {
+  const params = parsed.params as {
     concurrency: number;
     trials: number;
     retries: number;
@@ -111,7 +60,7 @@ export function readArgs(argv: string[]): Args | undefined {
   };
 
   return {
-    paths: (last.positionals.paths as string[] | undefined) ?? [],
+    paths: (parsed.positionals.paths as string[] | undefined) ?? [],
     concurrency: params.concurrency,
     options: {
       trials: params.trials,
@@ -121,13 +70,11 @@ export function readArgs(argv: string[]): Args | undefined {
   };
 }
 
-export async function runCli(argv: string[], cwd: string): Promise<number> {
-  const args = readArgs(argv);
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
-  if (args === undefined) {
-    return EXIT_PASSED;
-  }
-
+async function runCommand(args: Args, cwd: string): Promise<number> {
   const files = await findEvalFiles(args.paths, cwd);
 
   if (files.length === 0) {
@@ -153,7 +100,10 @@ export async function runCli(argv: string[], cwd: string): Promise<number> {
     console.log(formatReport(record, color));
     await writeRecord(join(cwd, ORDEAL_DIR), record);
 
-    const failed = record.evals.some((item) => item.passed < item.total);
+    // Пропущенный кейс не красный: код 1 даёт только кейс, который запускался и не прошёл.
+    const failed = record.evals.some(
+      (item) => item.passed + item.skipped < item.total,
+    );
 
     return failed ? EXIT_FAILED : EXIT_PASSED;
   } finally {
@@ -161,14 +111,56 @@ export async function runCli(argv: string[], cwd: string): Promise<number> {
   }
 }
 
-// Всё, что бросилось, — поломка запуска, а не красный кейс: неудачи кейсов
-// приходят значениями и сюда не долетают.
+// Команду выбирает argblock: .run() разбирает аргументы и зовёт action
+// вызванной команды. Action — граница процесса: он делает прогон и сам
+// завершает процесс с кодом возврата. Всё, что бросилось внутри прогона, —
+// поломка запуска, а не красный кейс: неудачи кейсов приходят значениями.
+//
+// Число ядер читается здесь, при сборке CLI, а не оседает константой при
+// загрузке модуля.
+//
+// commandLink делает голый ordeal тем же, что ordeal run: параметры и пути
+// объявлены один раз, на run.
+//
+// У --timeout нет значения по умолчанию: argblock подставляет его так, что
+// не отличить от набранного руками, а «не задан» значит «каждый кейс берёт свой».
+export function createCli(cwd: string): Cli {
+  const concurrency = pickConcurrency(navigator.hardwareConcurrency);
+
+  return new Cli({ commandLink: "run" })
+    .command("run [...paths]", "прогон эвалов (команда по умолчанию)")
+    .param(
+      `--concurrency -c number ${concurrency}`,
+      `сколько воркеров, по умолчанию по числу ядер, но не больше ${defaultConcurrencyLimit}`,
+    )
+    .param(
+      `--trials -t number ${defaultTrials}`,
+      "сколько раз запускать каждый кейс",
+    )
+    .param(
+      `--retries -r number ${defaultRetries}`,
+      "сколько повторов при падении",
+    )
+    .param("--timeout number", "мс на попытку, перебивает timeout кейса")
+    .action(async (parsed) => {
+      const code = await runCommand(readArgs(parsed), cwd).catch((error) => {
+        console.error(describeError(error));
+
+        return EXIT_BROKEN;
+      });
+
+      process.exit(code);
+    });
+}
+
+// Ошибку разбора аргументов argblock бросает синхронно из run(), до action,
+// поэтому она ловится здесь. На --help argblock печатает справку сам, action
+// не вызывается и процесс выходит с кодом 0.
 if (import.meta.main) {
-  const code = await runCli(Bun.argv.slice(2), process.cwd()).catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-
-    return EXIT_BROKEN;
-  });
-
-  process.exit(code);
+  try {
+    createCli(process.cwd()).run(Bun.argv.slice(2));
+  } catch (error) {
+    console.error(describeError(error));
+    process.exit(EXIT_BROKEN);
+  }
 }

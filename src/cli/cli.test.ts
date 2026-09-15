@@ -1,6 +1,17 @@
 import { expect, test } from "bun:test";
 
-import { pickConcurrency, readArgs } from "./cli.ts";
+import { createCli, pickConcurrency, readArgs } from "./cli.ts";
+
+// parse, в отличие от run, action не зовёт: тест проверяет разбор без прогона.
+function parseArgv(argv: string[]): ReturnType<typeof readArgs> | undefined {
+  const last = createCli("/").parse(argv).at(-1);
+
+  if (last === undefined) {
+    return;
+  }
+
+  return readArgs(last);
+}
 
 test("воркеров по умолчанию — по числу ядер, от 1 до 20", () => {
   expect(pickConcurrency(8)).toBe(8);
@@ -11,11 +22,11 @@ test("воркеров по умолчанию — по числу ядер, о�
 });
 
 test("-c выше потолка не режется", () => {
-  expect(readArgs(["-c", "64"])?.concurrency).toBe(64);
+  expect(parseArgv(["-c", "64"])?.concurrency).toBe(64);
 });
 
 test("без аргументов — значения по умолчанию и поиск от cwd", () => {
-  expect(readArgs([])).toEqual({
+  expect(parseArgv([])).toEqual({
     paths: [],
     concurrency: pickConcurrency(navigator.hardwareConcurrency),
     options: { trials: 1, retries: 0, timeout: undefined },
@@ -30,10 +41,10 @@ test("ordeal и ordeal run означают одно и то же", () => {
     options: { trials: 3, retries: 2, timeout: 5000 },
   };
 
-  expect(readArgs(argv)).toEqual(expected);
-  expect(readArgs(["run", ...argv])).toEqual(expected);
+  expect(parseArgv(argv)).toEqual(expected);
+  expect(parseArgv(["run", ...argv])).toEqual(expected);
 });
 
 test("--help не запускает прогон", () => {
-  expect(readArgs(["--help"])).toBeUndefined();
+  expect(parseArgv(["--help"])).toBeUndefined();
 });

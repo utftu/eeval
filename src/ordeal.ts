@@ -8,8 +8,9 @@ import {
   type Eval,
   type EvalCtx,
   type EvalEnt,
+  type EvalOptions,
   findEvals,
 } from "./eval/eval.ts";
 
 export { createEval, checkEval, findEvals };
-export type { Case, CaseEnt, CaseProps, CaseResult, Eval, EvalCtx, EvalEnt };
+export type { Case, CaseEnt, CaseProps, CaseResult, Eval, EvalCtx, EvalEnt, EvalOptions };
